@@ -1,0 +1,15 @@
+.idea/
+matlab/
+config/
+files/
+old/Kraken/configs/
+old/Kraken/key_raf.zip
+old/Kraken/kt_raf_bot.zip
+old/Kraken/secret_raf.zip
+src/Apps/Kraken/configs/
+src/Apps/Kraken/key_raf.zip
+src/Apps/Kraken/kt_raf_bot.zip
+src/Apps/Kraken/secret_raf.zip
+data/
+src/Apps/token.pickle
+/config/
