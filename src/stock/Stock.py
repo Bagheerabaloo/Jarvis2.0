@@ -184,7 +184,7 @@ def main():
     telegram_chats = postgre_manager.get_telegram_chats_from_db(admin_chat=admin_chat)
 
     commands = [
-        Command(alias=["callback"], admin=True, function=FunctionCallback),
+        Command(alias=["callback"], admin=False, function=FunctionCallback),
         Command(alias=["back"], admin=False, function=FunctionBack),
         Command(alias=["start"], admin=False, function=FunctionStart),
         Command(alias=["appNewUser"], admin=True, function=FunctionStockNewUser, restricted=True),

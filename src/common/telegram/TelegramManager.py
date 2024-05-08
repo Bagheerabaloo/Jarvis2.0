@@ -9,6 +9,8 @@ import asyncio
 
 from src.common.Command import Command
 from src.common.functions.Function import Function
+from src.common.functions.FunctionSendCallback import FunctionSendCallback
+from src.common.functions.FunctionStart import FunctionStart
 from src.common.telegram.TelegramUser import TelegramUser
 from src.common.telegram.TelegramChat import TelegramChat
 from src.common.telegram.TelegramMessage import TelegramMessage
@@ -215,6 +217,7 @@ class TelegramManager:
 
     def get_function_by_name(self, name: str, user_x: TelegramUser) -> List[Type[Function]]:
         # Command(alias=["ciao", "hello"], admin=True, function=FunctionCiao),
+        # TODO: add restricted constraint
         return [x.function for x in self.commands if name == x.function.name and (not x.admin or user_x.is_admin)]
 
     async def __command(self, user_x: TelegramUser, message: TelegramMessage, chat: TelegramChat):
@@ -251,6 +254,10 @@ class TelegramManager:
             fun = self.instantiate_function(function=function, chat=chat, message=message, is_new=False, function_id=telegram_function.id, user_x=user_x)
             await self.__execute_function(function=fun)
             # FunctionFactory.get_function(function_type=telegram_function.function_type, bot=self.telegram_bot, chat=chat, message=message, function_id=telegram_function.id, is_new=False)
+        else:
+            function = FunctionSendCallback
+            fun = self.instantiate_function(function=function, chat=chat, message=message, is_new=True, function_id=self.__get_next_available_function_id(), user_x=user_x)
+            await self.__execute_function(function=fun)
 
         """
         callback = update['callback_query']
@@ -337,8 +344,6 @@ class TelegramManager:
         if len(user_x) == 0:
             return await self.__handle_new_user(message=message)  # TODO: handle case in which user keeps sending command /start
 
-
-
     async def __handle_new_user(self, message: TelegramMessage):
         if message.chat_id != message.from_id:
             return None
@@ -349,10 +354,7 @@ class TelegramManager:
 
         """##### FunctionStart for new user #####"""
         # await self.__command(user_x=telegram_user, message=message, chat=telegram_chat)
-        function = await self.get_function_by_alias(alias=message.text, chat_id=telegram_chat.chat_id, user_x=telegram_user)
-        if not function:
-            return
-        telegram_chat.new_message(telegram_message=message)
+        function = FunctionStart
         instantiated_function = self.instantiate_function(function=function, chat=telegram_chat, message=message, is_new=True, function_id=message.message_id, user_x=telegram_user)
         instantiated_function.initialize()
         instantiated_function.telegram_function.settings["app"] = self.name
@@ -363,11 +365,12 @@ class TelegramManager:
         admin_user = self.get_admin_user()
         admin_chat = self.get_admin_chat()
 
-        # FunctionAppNewUser for admin user
-        await self.handle_app_new_user(admin_user=admin_user,
-                                       admin_chat=admin_chat,
-                                       new_telegram_user=telegram_user,
-                                       new_telegram_chat=telegram_chat)
+        if "first_send" in instantiated_function.telegram_function.settings and instantiated_function.telegram_function.settings["first_send"]:
+            # FunctionAppNewUser for admin user
+            await self.handle_app_new_user(admin_user=admin_user,
+                                           admin_chat=admin_chat,
+                                           new_telegram_user=telegram_user,
+                                           new_telegram_chat=telegram_chat)
 
     def update_users(self):
         print('refreshing telegram users')

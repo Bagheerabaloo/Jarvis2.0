@@ -136,15 +136,15 @@ class Function(ABC):
         # return True if success else False
 
     async def edit_message(self, chat_id: int, text: str, inline_keyboard: list = None, parse_mode=None):
-        if inline_keyboard:
-            response = await self.bot.edit_message(message_id=self.telegram_function.callback_message_id, chat_id=chat_id, text=text, reply_markup=inline_keyboard, parse_mode=parse_mode)
-            self.telegram_function.is_open_for_message = False
-            self.telegram_function.has_inline_keyboard = True
-            self.telegram_function.callback_message_id = response['message_id']
-            return
-
-        await self.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+        # if inline_keyboard:
+        response = await self.bot.edit_message(message_id=self.telegram_function.callback_message_id, chat_id=chat_id, text=text, reply_markup=inline_keyboard, parse_mode=parse_mode)
+        self.telegram_function.is_open_for_message = False
+        self.telegram_function.has_inline_keyboard = True
+        self.telegram_function.callback_message_id = response['message_id']
         return
+        #
+        # await self.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+        # return
 
     def send_callback(self, chat: TelegramChat, message: TelegramMessage, text: str):
         if message.callback_id:

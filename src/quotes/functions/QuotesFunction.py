@@ -26,6 +26,13 @@ class QuotesFunction(Function):
     def app_user(self):
         return self.quotes_user
 
+    @staticmethod
+    def new_quote_user(new_user: TelegramUser):
+        return QuotesUser(telegram_id=new_user.telegram_id,
+                          name=new_user.name,
+                          username=new_user.username,
+                          is_admin=False)
+
     def build_note(self, note: dict, index: int = 0, user_x: QuotesUser = None):
         show_counter = f"_{index + 1}/{len(self.telegram_function.settings['notes'])}_\n\n" if user_x and 'show_counter' in user_x.settings and user_x.settings['show_counter'] else ''
         pag = f" - pag. {note['pag']}" if 'pag' in note and note['pag'] else ""

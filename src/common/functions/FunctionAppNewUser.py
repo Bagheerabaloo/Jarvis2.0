@@ -27,6 +27,13 @@ class FunctionAppNewUser(Function):
             match choice_:
                 case 'Approve':
                     await self.approve_new_user()
+                    new_user: TelegramUser = self.telegram_function.settings["new_user"]
+                    app: str = self.telegram_function.settings["app"]
+                    from_ = self.build_from(new_user=new_user)
+                    text = f"*app {app}*\n\n{from_}\n\n*Approved*"
+                    await self.edit_message(chat_id=self.chat.chat_id, text=text, parse_mode="Markdown")
+                    text = '*Your application has been approved*\n\n_What can I do with this app?_ /help'
+                    await self.send_message(chat_id=new_user.telegram_id, text=text, parse_mode="Markdown")
                 case 'Postpone':
                     pass
                 case 'Ban':
@@ -57,7 +64,7 @@ class FunctionAppNewUser(Function):
         # __ users variables must be updated __
         self.need_to_update_users = True
 
-        # __ insert new app users entries __
+        # __ approve user for the specific app __
         if not self.approve_app_user(new_user=new_user):
             return False
 
@@ -65,7 +72,7 @@ class FunctionAppNewUser(Function):
 
     @staticmethod
     def approve_app_user(new_user: TelegramUser):
-        return True
+        pass
 
     async def ban_new_user(self):
         pass

@@ -16,11 +16,7 @@ class FunctionStockNewUser(StockFunction, FunctionAppNewUser):
     name: str = 'stock_new_user'
 
     def approve_app_user(self, new_user: TelegramUser):
-        new_stock_user = StockUser(telegram_id=new_user.telegram_id,
-                                   name=new_user.name,
-                                   username=new_user.username,
-                                   is_admin=False)
-
+        new_stock_user = self.new_stock_user(new_user=new_user)
         if not self.postgre_manager.add_stock_user_to_db(new_stock_user, commit=False):
             return False
         return True

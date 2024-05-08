@@ -16,11 +16,7 @@ class FunctionQuotesNewUser(QuotesFunction, FunctionAppNewUser):
     name: str = 'quotes_new_user'
 
     def approve_app_user(self, new_user: TelegramUser):
-        new_quotes_user = QuotesUser(telegram_id=new_user.telegram_id,
-                                     name=new_user.name,
-                                     username=new_user.username,
-                                     is_admin=False)
-
+        new_quotes_user = self.new_quote_user(new_user=new_user)
         if not self.postgre_manager.add_quotes_user_to_db(new_quotes_user, commit=False):
             return False
         return True

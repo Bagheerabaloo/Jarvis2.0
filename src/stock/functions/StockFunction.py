@@ -26,3 +26,10 @@ class StockFunction(Function):
     def app_user(self):
         return self.stock_user
 
+    @staticmethod
+    def new_stock_user(new_user: TelegramUser):
+        return StockUser(telegram_id=new_user.telegram_id,
+                         name=new_user.name,
+                         username=new_user.username,
+                         is_admin=False)
+
