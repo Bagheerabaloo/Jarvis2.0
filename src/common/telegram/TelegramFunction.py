@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from copy import deepcopy
 
 from src.common.functions.FunctionType import FunctionType
@@ -15,6 +15,7 @@ class TelegramFunction:
     # chat: dict              # telegram chat
     # original_caller: dict   # telegram from
     # current_function: str
+    previous_state: int = 0
     state: int = 1
     is_open_for_message: bool = True
     has_inline_keyboard: bool = False
@@ -22,6 +23,7 @@ class TelegramFunction:
     # callback_id: int = None
     # callback_photo: bool = False
 
+    settings: dict = field(default_factory=lambda: {})
 
     # last_caller: dict = None
     # state_function: int = 0
@@ -44,6 +46,20 @@ class TelegramFunction:
     #     self.nested_function = None
     #     self.last_caller = self.original_caller
 
+    def is_back(self, depth: int = 1) -> bool:
+        return True if self.state == self.previous_state - depth else False
+
+    def is_next(self, depth: int = 1) -> bool:
+        return True if self.state == self.previous_state + depth else False
+
+    def next(self, steps: int = 1):
+        self.previous_state = self.state
+        self.state += steps
+
+    def back(self, steps: int = 1):
+        self.previous_state = self.state
+        self.state -= steps
+
     # ___ changing name/state of function
     def next_function(self, name=None, nxt=0, prev=0, reserved=None, last_message=None):
         self.current_function = name if name else self.current_function
@@ -53,17 +69,17 @@ class TelegramFunction:
         self.current_message = last_message if last_message else None
         return self
 
-    def next(self, name=None, reserved=None, steps=1):
-        return self.next_function(name=self.current_function,
-                                  nxt=name if name else self.state_function + steps,
-                                  prev=self.state_function,
-                                  reserved=reserved if reserved else self.reserved)
+    # def next(self, name=None, reserved=None, steps=1):
+    #     return self.next_function(name=self.current_function,
+    #                               nxt=name if name else self.state_function + steps,
+    #                               prev=self.state_function,
+    #                               reserved=reserved if reserved else self.reserved)
 
-    def back(self, name=None, reserved=None, steps=1):
-        return self.next_function(name=self.current_function,
-                                  nxt=name if name else self.state_function - steps,
-                                  prev=self.state_function,
-                                  reserved=reserved if reserved else self.reserved)
+    # def back(self, name=None, reserved=None, steps=1):
+    #     return self.next_function(name=self.current_function,
+    #                               nxt=name if name else self.state_function - steps,
+    #                               prev=self.state_function,
+    #                               reserved=reserved if reserved else self.reserved)
 
     def same(self, name=None, reserved=None, kwargs=None):
         return self.next_function(name=self.current_function,
@@ -106,18 +122,6 @@ class TelegramFunction:
 
     def check_auth(self):
         return self.auth_function
-
-    def is_next(self, depth=1):
-        if type(self.state_function) not in [int, float]:
-            return False
-
-        return True if self.state_function == self.previous_state_function + depth else False
-
-    def is_back(self, depth=1):
-        if type(self.state_function) not in [int, float]:
-            return False
-
-        return True if self.state_function == self.previous_state_function - depth else False
 
     def is_same(self):
         if type(self.state_function) not in [int, float]:

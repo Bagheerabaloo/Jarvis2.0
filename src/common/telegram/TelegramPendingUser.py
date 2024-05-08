@@ -1,28 +1,15 @@
 from dataclasses import dataclass, field
-from src.common.telegram.TelegramMessageType import TelegramMessageType
+from src.common.telegram.TelegramFunction import TelegramFunction
 
 
 @dataclass
-class TelegramMessage:
-    message_type: TelegramMessageType
-    chat_id: int
-    message_id: int
-    date: int
-    update_id: int
-    from_id: int
-    from_name: str
-    from_username: str
-    chat_last_name: str
-
-    text: str = None
-    callback_id: int = None
-    data: str = None
-
-    def get_from(self):
-        return {k: v for k, v in self.__dict__.items() if k.startswith('from')}
-
-    def last_message(self):
-        return self.text if self.text else self.data
+class TelegramPendingUser:
+    telegram_id: int  # user_id
+    approved: bool
+    banned: bool
+    app: str
+    name: str = None
+    username: str = None
 
 """ New Chat
 {'update_id': 879617908, 

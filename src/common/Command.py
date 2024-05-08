@@ -9,3 +9,4 @@ class Command:
     alias: list[str]
     admin: bool
     function: Type[Function]
+    restricted: bool = False

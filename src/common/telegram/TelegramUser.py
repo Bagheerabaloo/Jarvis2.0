@@ -1,17 +1,17 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from src.common.telegram.TelegramFunction import TelegramFunction
 
 
 @dataclass
 class TelegramUser:
     # __ Static data __
-    id: int  # user_id
+    telegram_id: int  # user_id
     name: str
     username: str = None
     is_admin: bool = False
 
     # __ Flags and settings __
-    settings = None
+    settings: dict = field(default_factory=lambda: {})
     auth: bool = False  # Authentication Status
 
     last_chat_id: int = None

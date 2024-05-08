@@ -57,13 +57,16 @@ class FileManager:
         return True
 
     # __ postgre url __
-    def get_postgre_url(self, database_key='DATABASE_URL'):
+    def get_postgre_url(self, database_key='POSTGRE_URL_LOCAL'):
         return self.load(key=database_key)
 
     def get_telegram_token(self, database_key='TELEGRAM_TOKEN'):
         return self.load(key=database_key)
 
     def get_admin(self, database_key='ADMIN_INFO'):
+        return self.load(key=database_key)
+
+    def get_admin_chat(self, database_key='ADMIN_CHAT'):
         return self.load(key=database_key)
 
 
