@@ -92,8 +92,7 @@ class Function(ABC):
             self.telegram_function.callback_message_id = response['message_id']
             return
 
-        await self.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
-        return
+        return await self.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
         # def send_message(self, user_x, text, remove_keyboard=False, keyboard=None, force_inline=False, silent=True, force_sound=False,
         #                  pending=False, append_done=False, end_keyboard=None, bypass_inline=False,
         #                  accept_messages=True, accept_commands=True, parse_mode=None):

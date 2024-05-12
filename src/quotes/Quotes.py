@@ -19,6 +19,7 @@ from src.common.functions.FunctionCiao import FunctionCiao
 from src.common.functions.FunctionCallback import FunctionCallback
 from src.common.functions.FunctionProcess import FunctionProcess
 from src.common.functions.FunctionStart import FunctionStart
+from src.common.functions.FunctionHelp import FunctionHelp
 
 from src.quotes.functions.FunctionBack import FunctionBack
 from src.quotes.functions.FunctionQuotesNewUser import FunctionQuotesNewUser
@@ -27,10 +28,12 @@ from src.quotes.functions.FunctionShowQuotes import FunctionShowQuote
 from src.quotes.functions.FunctionNewNote import FunctionNewNote
 from src.quotes.functions.FunctionShowNotes import FunctionShowNotes
 from src.quotes.functions.FunctionDailyQuote import FunctionDailyQuote
+from src.quotes.functions.FunctionDailyBook import FunctionDailyBook
+from src.quotes.functions.FunctionQuotesSettings import FunctionQuotesSettings
 
 from src.common.file_manager.FileManager import FileManager
 from src.common.postgre.PostgreManager import PostgreManager
-from src.common.tools.library import run_main, get_environ, int_timestamp_now, class_from_args, to_int, timestamp2date
+from src.common.tools.library import run_main, get_environ, int_timestamp_now, class_from_args, to_int, timestamp2date, build_eta
 from src.quotes.QuotesUser import QuotesUser
 from src.quotes.QuotesPostgreManager import QuotesPostgreManager
 
@@ -49,12 +52,14 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 class Quotes(TelegramManager):
     postgre_manager: QuotesPostgreManager = field(default=None)
     daily_quote: bool = True
+    daily_book: bool = True
     name: str = "Quotes"
 
     def __post_init__(self):
         super().__post_init__()
         self.quotes_users = self.postgre_manager.get_quotes_users()
         self.__init_quote_timer() if self.daily_quote else None
+        self.__init_book_timer() if self.daily_book else None
 
     @property
     def app_users(self):
@@ -205,6 +210,74 @@ class Quotes(TelegramManager):
             sleep(0.2)
         print(f"Sending daily quotes completed at {timestamp2date(time())}")
 
+    def __init_book_timer(self):
+        eta_1 = build_eta(target_hour=12, target_minute=00)
+        eta_2 = build_eta(target_hour=18, target_minute=00)
+
+        print('Next Note 1 set in ' + str(to_int(eta_1/3600)) + 'h:' + str(to_int((eta_1 % 3600)/60)) + 'm:' + str(to_int(((eta_1 % 3600) % 60))) + 's:')
+        print('Next Note 2 set in ' + str(to_int(eta_2/3600)) + 'h:' + str(to_int((eta_2 % 3600)/60)) + 'm:' + str(to_int(((eta_2 % 3600) % 60))) + 's:')
+
+        self.note_timer_eta_1 = Timer(eta_1, self.__asyncio_daily_book)
+        self.note_timer_eta_1.name = 'Next Note 1'
+        self.note_timer_eta_1.start()
+
+        self.note_timer_eta_2 = Timer(eta_2, self.__asyncio_daily_book)
+        self.note_timer_eta_2.name = 'Next Note 2'
+        self.note_timer_eta_2.start()
+
+    def __asyncio_daily_book(self):
+        asyncio.run(self.__daily_book())
+
+    async def __daily_book(self):
+        query = """
+                (
+                SELECT *
+                FROM notes
+                WHERE is_book = TRUE
+                AND last_random_time = 1
+                ORDER BY RANDOM()
+                LIMIT 100
+                )
+                UNION
+                (
+                SELECT *
+                FROM notes
+                WHERE is_book = TRUE
+                AND last_random_time > 1
+                ORDER BY last_random_time
+                LIMIT 100
+                )
+                """  # TODO: move to QuotesPostgreManager and change note_id into id
+        notes = self.postgre_manager.select_query(query=query)
+        if len(notes) == 0:
+            return None
+
+        note = choice(notes)
+        book = note["book"]
+        notes = self.postgre_manager.get_notes_with_tags_by_book(book=book)
+        index = next((index for (index, d) in enumerate(notes) if d["id"] == note["note_id"]), None)
+        self.postgre_manager.update_note_by_note_id(note_id=note['note_id'], set_params={'last_random_time': to_int(time())})
+
+        print(f"Start sending daily book notes at {timestamp2date(time())}")
+        for user in self.quotes_users:
+            if user.daily_book:
+                function = await self.get_function_by_alias(alias='dailyBook', chat_id=user.telegram_id, user_x=user)
+                if not function:
+                    continue
+
+                chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
+                message = self._build_new_telegram_message(chat=chat, text='dailyBook')
+                instantiated_function = self.instantiate_function(function=function, chat=chat, message=message, is_new=True, function_id=message.message_id, user_x=user)
+                instantiated_function.initialize()
+                instantiated_function.telegram_function.settings["note"] = note
+                instantiated_function.telegram_function.settings["book"] = book
+                instantiated_function.telegram_function.settings["index"] = index
+                instantiated_function.telegram_function.settings["notes"] = notes
+                await instantiated_function.evaluate()
+                instantiated_function.post_evaluate()
+            sleep(0.2)
+        print(f"Sending daily book notes completed at {timestamp2date(time())}")
+
 
 def main():
 
@@ -235,6 +308,7 @@ def main():
 
     commands = [
         Command(alias=["back"], admin=False, function=FunctionBack),
+        Command(alias=["help"], admin=False, function=FunctionHelp),
         Command(alias=["ciao", "hello"], admin=True, function=FunctionCiao),
         Command(alias=["callback"], admin=True, function=FunctionCallback),
         Command(alias=["process"], admin=True, function=FunctionProcess),
@@ -243,8 +317,10 @@ def main():
         Command(alias=["showQuotes"], admin=False, function=FunctionShowQuote),
         Command(alias=["note"], admin=True, function=FunctionNewNote),
         Command(alias=["showNotes"], admin=True, function=FunctionShowNotes),
+        Command(alias=["settings"], admin=False, function=FunctionQuotesSettings),
         Command(alias=["appNewUser"], admin=True, function=FunctionQuotesNewUser, restricted=True),
         Command(alias=["dailyQuote"], admin=False, function=FunctionDailyQuote, restricted=True),
+        Command(alias=["dailyBook"], admin=False, function=FunctionDailyBook, restricted=True),
     ]
 
     quotes = Quotes(token=token, users=telegram_users, chats=telegram_chats, commands=commands, postgre_manager=postgre_manager)

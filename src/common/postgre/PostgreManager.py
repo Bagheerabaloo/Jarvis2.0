@@ -10,6 +10,7 @@ from src.common.telegram.TelegramChat import TelegramChat
 
 
 class PostgreManager:
+    # TODO: add protection against insert/update/delete
     @staticmethod
     def __build_insert_into(table, attributes, values):
         query = 'INSERT INTO ' + table + ' ('
@@ -221,6 +222,15 @@ class PostgreManager:
         query = f"""
                  UPDATE telegram_pending_users
                  SET approved = TRUE, last_modified = {int_timestamp_now()}
+                 WHERE telegram_id = {user.telegram_id}
+                 AND app = $${app}$$
+                 """
+        return self.update_query(query=query, commit=commit)
+
+    def ban_pending_telegram_user(self, user: TelegramUser, app: str, commit: bool = True) -> bool:
+        query = f"""
+                 UPDATE telegram_pending_users
+                 SET banned = TRUE, last_modified = {int_timestamp_now()}
                  WHERE telegram_id = {user.telegram_id}
                  AND app = $${app}$$
                  """

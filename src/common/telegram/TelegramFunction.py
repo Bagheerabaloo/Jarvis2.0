@@ -60,14 +60,17 @@ class TelegramFunction:
         self.previous_state = self.state
         self.state -= steps
 
+    def same(self):
+        self.previous_state = self.state
+
     # ___ changing name/state of function
-    def next_function(self, name=None, nxt=0, prev=0, reserved=None, last_message=None):
-        self.current_function = name if name else self.current_function
-        self.state_function = nxt
-        self.previous_state_function = prev
-        self.reserved = reserved if reserved else self.reserved
-        self.current_message = last_message if last_message else None
-        return self
+    # def next_function(self, name=None, nxt=0, prev=0, reserved=None, last_message=None):
+    #     self.current_function = name if name else self.current_function
+    #     self.state_function = nxt
+    #     self.previous_state_function = prev
+    #     self.reserved = reserved if reserved else self.reserved
+    #     self.current_message = last_message if last_message else None
+    #     return self
 
     # def next(self, name=None, reserved=None, steps=1):
     #     return self.next_function(name=self.current_function,
@@ -81,11 +84,11 @@ class TelegramFunction:
     #                               prev=self.state_function,
     #                               reserved=reserved if reserved else self.reserved)
 
-    def same(self, name=None, reserved=None, kwargs=None):
-        return self.next_function(name=self.current_function,
-                                  nxt=name if name else self.state_function,
-                                  prev=self.state_function,
-                                  reserved=reserved if reserved else self.reserved)
+    # def same(self, name=None, reserved=None, kwargs=None):
+    #     return self.next_function(name=self.current_function,
+    #                               nxt=name if name else self.state_function,
+    #                               prev=self.state_function,
+    #                               reserved=reserved if reserved else self.reserved)
 
     # ___ nesting functions ___
     def nest_function(self, name=None, nxt=None, prev=None, reserved=None):

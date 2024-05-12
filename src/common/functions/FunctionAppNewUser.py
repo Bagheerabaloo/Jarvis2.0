@@ -23,13 +23,14 @@ class FunctionAppNewUser(Function):
 
     async def state_2(self):
         if self.telegram_function.is_next():
+            new_user: TelegramUser = self.telegram_function.settings["new_user"]
+            app: str = self.telegram_function.settings["app"]
+            from_ = self.build_from(new_user=new_user)
+
             choice_ = self.message.last_message()
             match choice_:
                 case 'Approve':
                     await self.approve_new_user()
-                    new_user: TelegramUser = self.telegram_function.settings["new_user"]
-                    app: str = self.telegram_function.settings["app"]
-                    from_ = self.build_from(new_user=new_user)
                     text = f"*app {app}*\n\n{from_}\n\n*Approved*"
                     await self.edit_message(chat_id=self.chat.chat_id, text=text, parse_mode="Markdown")
                     text = '*Your application has been approved*\n\n_What can I do with this app?_ /help'
@@ -38,6 +39,8 @@ class FunctionAppNewUser(Function):
                     pass
                 case 'Ban':
                     await self.ban_new_user()
+                    text = f"*app {app}*\n\n{from_}\n\n*Banned*"
+                    await self.edit_message(chat_id=self.chat.chat_id, text=text, parse_mode="Markdown")
                 case _:
                     raise ValueError("Invalid choice")
         self.close_function()
@@ -75,6 +78,9 @@ class FunctionAppNewUser(Function):
         pass
 
     async def ban_new_user(self):
-        pass
+        new_user: TelegramUser = self.telegram_function.settings["new_user"]
+        app: str = self.telegram_function.settings["app"]
+        if not self.postgre_manager.ban_pending_telegram_user(user=new_user, app=app, commit=True):
+            return False
 
 

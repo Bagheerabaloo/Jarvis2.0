@@ -13,3 +13,4 @@ src/Apps/Kraken/secret_raf.zip
 data/
 src/Apps/token.pickle
 /config/
+/src/common/postgre/db_backup/

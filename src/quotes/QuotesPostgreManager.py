@@ -70,17 +70,48 @@ class QuotesPostgreManager(PostgreManager):
     def add_quotes_user_to_db(self, user: QuotesUser, commit: bool = True) -> bool:
         query = f"""
                 INSERT INTO quotes_users
-                (telegram_id, language)
+                (telegram_id, language, created, last_modified)
                 VALUES
-                ({user.telegram_id}, $${user.language}$$)
+                ({user.telegram_id}, $${user.language}$$, {int_timestamp_now()}, {int_timestamp_now()})
                 """
         return self.insert_query(query=query, commit=commit)
         # self.logger.info('Quote user created')
+
+    def update_db_user_setting(self, user: QuotesUser, attribute, commit: bool = True) -> bool:
+        value = user.get_attribute(attribute=attribute)
+        query = f"""
+                 UPDATE quotes_users
+                 SET {attribute} = {value}, last_modified = {int_timestamp_now()}
+                 WHERE telegram_id = {user.telegram_id}
+                 """
+        return self.update_query(query, commit=commit)
 
     """ ____ DB: Quotes Collection _____"""
     def find_quotes(self, params):
         params = ' AND '.join([key + f" = '{params[key]}'" if type(params[key]) is str else key + f" = {params[key]}" for key in params])
         return self.select_query(f"SELECT * FROM quotes WHERE {params}")
+
+    def get_quotes_with_tags(self) -> List[dict]:
+        query = f"""SELECT *
+                    FROM quotes Q 
+                    LEFT JOIN (SELECT quote_id AS id FROM quotes) TEMP ON TEMP.id = Q.quote_id
+                    LEFT JOIN tags T ON Q.quote_id = T.quote_id
+                    """
+        results = self.select_query(query=query)
+
+        if not results:
+            return []
+
+        quotes_id = list(set([x['id'] for x in results]))
+
+        quotes = []
+        for quote_id in quotes_id:
+            temp_quotes = [x for x in results if x['id'] == quote_id]
+            quote = {key: temp_quotes[0][key] for key in temp_quotes[0] if key not in ['tag_id', 'tag', 'note_id', 'quote_id']}
+            quote.update({'tags': [x['tag'] for x in temp_quotes if x["tag"]]})
+            quotes.append(quote)
+
+        return quotes
 
     def check_for_similar_quotes(self, quote: str):
         words = re.findall(r'\w+', quote)
@@ -88,21 +119,29 @@ class QuotesPostgreManager(PostgreManager):
         quotes = self.select_query(f"SELECT * FROM quotes WHERE (UPPER(quote) LIKE '%{where}%')")
         return quotes if len(quotes) > 0 else []
 
-    def insert_quote(self, telegram_id: int, quote: str, author: str, translation: str = None, private: bool = True, tags: List[str] = None):
+    def insert_quote(self,
+                     telegram_id: int,
+                     quote: str,
+                     author: str,
+                     translation: str = None,
+                     quote_ita: str = None,
+                     private: bool = True,
+                     tags: List[str] = None,
+                     commit: bool = True):
         query = f"""
                 INSERT INTO quotes
-                (quote, author, translation, last_random_tme, telegram_id, private, created, last_modified)
+                (quote, author, translation, quote_ita, last_random_tme, telegram_id, private, created, last_modified)
                 VALUES
-                ($${quote}$$, $${author}$$, $${translation}$$, {int_timestamp_now()}, {telegram_id}, {private}, {int_timestamp_now()}, {int_timestamp_now()})
+                ($${quote}$$, $${author}$$, $${translation}$$, $${quote_ita}$$, {int_timestamp_now()}, {telegram_id}, {private}, {int_timestamp_now()}, {int_timestamp_now()})
                 """
-        if not self.insert_query(query=query, commit=True):
+        if not self.insert_query(query=query, commit=commit):
             return False
         if not tags:
             return True
 
         quotes = self.find_quotes({'quote': quote, 'author': 'author'})
         for tag in tags:
-            self.insert_tag(tag=tag, quote_id=quotes[0]['quote_id'])
+            self.insert_tag(tag=tag, quote_id=quotes[0]['quote_id'], commit=commit)
 
         return True
 
@@ -120,14 +159,22 @@ class QuotesPostgreManager(PostgreManager):
         return updated
 
     """ _____ DB: Notes Collection _____ """
-    def insert_one_note(self, note: str, user_id, book: str = None, pag: int = None, tags: List[str] = None):
+    def insert_one_note(self, note: str, user_id, book: str = None, pag: int = None, tags: List[str] = None, commit: bool = True):
         if book:
-            query = f"""
-                    INSERT INTO notes
-                    (note, telegram_id, private, created, last_modified, last_random_time, is_book, book, pag)
-                    VALUES
-                    ($${note}$$, {user_id}, {True}, {int_timestamp_now()}, {int_timestamp_now()}, {1}, {True}, $${book}$$, {pag})
-                    """
+            if pag:
+                query = f"""
+                        INSERT INTO notes
+                        (note, telegram_id, private, created, last_modified, last_random_time, is_book, book, pag)
+                        VALUES
+                        ($${note}$$, {user_id}, {True}, {int_timestamp_now()}, {int_timestamp_now()}, {1}, {True}, $${book}$$, {pag})
+                        """
+            else:
+                query = f"""
+                        INSERT INTO notes
+                        (note, telegram_id, private, created, last_modified, last_random_time, is_book, book)
+                        VALUES
+                        ($${note}$$, {user_id}, {True}, {int_timestamp_now()}, {int_timestamp_now()}, {1}, {True}, $${book}$$)
+                        """
         else:
             query = f"""
                     INSERT INTO notes
@@ -135,7 +182,7 @@ class QuotesPostgreManager(PostgreManager):
                     VALUES
                     ($${note}$$, {user_id}, {True}, {int_timestamp_now()}, {int_timestamp_now()}, {1}, {False})
                     """
-        self.insert_query(query=query, commit=True)
+        self.insert_query(query=query, commit=commit)
 
         query = f"""
                 SELECT note_id 
@@ -145,7 +192,7 @@ class QuotesPostgreManager(PostgreManager):
         note_id = self.select_query(query=query)[0]['note_id']
 
         for tag in tags:
-            self.insert_tag(tag=tag, note_id=note_id)
+            self.insert_tag(tag=tag, note_id=note_id, commit=commit)
 
     def get_notes(self) -> List[dict]:  # TODO: create class Notes, Quotes etc.
         query = f"""SELECT * from notes N"""
@@ -153,24 +200,45 @@ class QuotesPostgreManager(PostgreManager):
         return notes
 
     def get_notes_with_tags(self) -> List[dict]:
-        query = f"""SELECT * from notes N join tags T on T.note_id = N.note_id"""
+        query = f"""SELECT * 
+                    FROM notes N 
+                    LEFT JOIN (SELECT note_id AS id FROM notes) TEMP ON TEMP.id = N.note_id
+                    LEFT JOIN tags T ON T.note_id = N.note_id"""
         results = self.select_query(query=query)
 
         if not results:
             return []
 
-        notes_id = list(set([x['note_id'] for x in results]))
+        return self.__arrange_tags(results=results)
+
+    def get_notes_with_tags_by_book(self, book: str) -> List[dict]:
+        query = f"""SELECT * 
+                    FROM notes N 
+                    LEFT JOIN (SELECT note_id AS id FROM notes) TEMP ON TEMP.id = N.note_id
+                    LEFT JOIN tags T ON T.note_id = N.note_id
+                    WHERE N.book = $${book}$$
+                    """
+        results = self.select_query(query=query)
+
+        if not results:
+            return []
+
+        return self.__arrange_tags(results=results)
+
+    @staticmethod
+    def __arrange_tags(results: List[dict]) -> List[dict]:
+        notes_id = list(set([x['id'] for x in results]))
 
         notes = []
         for note_id in notes_id:
-            temp_notes = [x for x in results if x['note_id'] == note_id]
-            note = {key: temp_notes[0][key] for key in temp_notes[0] if key not in ['tag_id', 'tag', 'quote_id']}
-            note.update({'tags': [x['tag'] for x in temp_notes]})
+            temp_notes = [x for x in results if x['id'] == note_id]
+            note = {key: temp_notes[0][key] for key in temp_notes[0] if key not in ['tag_id', 'tag', 'quote_id', 'note_id']}
+            note.update({'tags': [x['tag'] for x in temp_notes if x["tag"]]})
             notes.append(note)
 
         return notes
 
-    def get_note_by_id(self, note_id: int) -> Optional[dict]:
+    def get_note_with_tags_by_id(self, note_id: int) -> Optional[dict]:
         query = f"""SELECT * from notes N left join tags T on T.note_id = N.note_id where N.note_id = {note_id}"""
         results = self.select_query(query=query)
 
@@ -181,8 +249,21 @@ class QuotesPostgreManager(PostgreManager):
         note.update({'tags': [x['tag'] for x in results if x['tag']]})
         return note
 
+    def update_note_by_note_id(self, note_id, set_params):  # TODO: unify with update_quote_by_quote_id
+        set_params = ','.join([key + f" = '{set_params[key]}'" if type(set_params[key]) is str else key + f" = {set_params[key]}" for key in set_params])
+
+        query = f"""
+                 UPDATE notes
+                 SET {set_params}, last_modified = {int_timestamp_now()}
+                 WHERE note_id = {note_id}
+                 """
+        updated = self.update_query(query, commit=True)
+        if updated:
+            self.logger.warning('Note id {} edited: '.format(note_id))
+        return updated
+
     """ ______ DB: Tags Collection _____ """
-    def insert_tag(self, tag: str, quote_id: str = None, note_id: str = None) -> bool:
+    def insert_tag(self, tag: str, quote_id: str = None, note_id: str = None, commit: bool = True) -> bool:
         if not quote_id and not note_id:
             return False
 
@@ -193,7 +274,7 @@ class QuotesPostgreManager(PostgreManager):
                 VALUES
                 ($${tag}$$, {quote_id if quote_id else note_id})
                 """
-        return self.insert_query(query=query, commit=True)
+        return self.insert_query(query=query, commit=commit)
 
     def get_last_tags(self, max_tags: int = 9) -> List[str]:
         notes = self.get_notes_with_tags()

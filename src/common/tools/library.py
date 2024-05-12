@@ -22,6 +22,7 @@ from pathlib import Path
 # import plotly.graph_objs as go
 # from mpl_finance import candlestick_ohlc
 from dataclasses import dataclass, fields
+import pytz
 
 
 def class_from_args(class_name, arg_dict):
@@ -319,7 +320,6 @@ def get_month_year_from_timestamp_v2(result):
 
 
 def time_out(start, eta):
-
     return True if time() >= (start + eta) else False
 
 
@@ -354,11 +354,17 @@ def seconds_to_time_str(seconds):
 
 
 def now(frmt='%Y-%m-%d %H.%M.%S'):
-
     dt = datetime.now(tz=None)
     frmt = '{:' + frmt + '}'
     return frmt.format(dt)
 
+
+def build_eta(target_hour, target_minute=0):
+    dt = datetime.now(pytz.timezone('Europe/Rome'))
+    eta = ((target_hour - dt.hour - 1) * 60 * 60) + ((60 + target_minute - dt.minute - 1) * 60) + (61 - dt.second)
+    if eta < 0:
+        eta += 24 * 60 * 60
+    return eta
 
 # _____ File read/write _____ #
 

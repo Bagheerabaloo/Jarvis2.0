@@ -9,12 +9,13 @@ class FunctionStart(Function):
 
     async def state_1(self):
         self.telegram_function.settings["first_send"] = False
+        app = self.telegram_function.settings["app"]
         from_ = self.message.get_from()
         user_id = self.message.from_id
         pending_users = self.postgre_manager.get_telegram_pending_users_by_app(app=self.telegram_function.settings["app"])
-        if any(x for x in pending_users if x.telegram_id == user_id and not x.banned):
+        if any(x for x in pending_users if x.telegram_id == user_id and x.app == app and not x.banned):
             return await self.send_message(chat_id=self.message.chat_id, text="Application has been already sent. Please wait for approval from admin")
-        elif any(x for x in pending_users if x.telegram_id == user_id and x.banned):
+        elif any(x for x in pending_users if x.telegram_id == user_id and x.app == app and x.banned):
             return False
 
         new_pending_user = TelegramPendingUser(telegram_id=user_id,

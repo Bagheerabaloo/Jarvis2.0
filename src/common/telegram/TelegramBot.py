@@ -27,7 +27,11 @@ class TelegramBot:
 
     # __ Async methods __
     async def __send_message(self, chat_id, text, parse_mode=None, reply_mark_up=None, silent=True):
-        return await self.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_markup=reply_mark_up, disable_notification=silent)
+        return await self.bot.send_message(chat_id=chat_id,
+                                           text=text,
+                                           parse_mode=parse_mode,
+                                           reply_markup=reply_mark_up,
+                                           disable_notification=silent)
 
     async def __send_callback(self, callback_id, text):
         return await self.bot.answer_callback_query(callback_query_id=callback_id, text=text)
@@ -119,7 +123,17 @@ class TelegramBot:
         if len(text) > 4096:
             return self.split_and_send_message(text=text, chat_id=chat_id, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent)
 
-        return await self.__send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent)
+        num_of_tries = 0
+        response = None
+        while not response and num_of_tries < 10:
+            try:
+                response = await self.__send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent)
+            except:
+                sleep(1)
+                num_of_tries += 1
+                print("Timeout error - trying to send message again")
+                continue
+        return response
 
     def split_and_send_message(self, text, chat_id, parse_mode, reply_mark_up, silent):
         message_ids = []

@@ -45,8 +45,8 @@ class FunctionShowNotes(QuotesFunction):
             elif action == '<<':
                 index = max(index - 10, 0)
 
-        note_id = notes[index]['note_id']
-        note = self.postgre_manager.get_note_by_id(note_id=note_id)
+        note_id = notes[index]['id']
+        note = self.postgre_manager.get_note_with_tags_by_id(note_id=note_id)
 
         text = self.build_note(note=note, index=index, user_x=self.quotes_user)
         keyboard = self.build_navigation_keyboard(index=index, len_=len(notes))
