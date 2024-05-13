@@ -92,23 +92,16 @@ class Quotes(TelegramManager):
 
     def instantiate_function(self, function, chat: TelegramChat, message: TelegramMessage, is_new: bool, function_id: int, user_x: TelegramUser) -> Function:
         # print(isinstance(function.__class__.__name__, Quotes))
-        if "quotes_user" not in dir(function):
-            return function(bot=self.telegram_bot,
-                            chat=chat,
-                            message=message,
-                            function_id=function_id,
-                            is_new=is_new,
-                            postgre_manager=self.postgre_manager
-                            )
-        else:
-            return function(bot=self.telegram_bot,
-                            chat=chat,
-                            message=message,
-                            function_id=function_id,
-                            is_new=is_new,
-                            postgre_manager=self.postgre_manager,
-                            quotes_user=[x for x in self.quotes_users if x.telegram_id == user_x.telegram_id][0]
-                            )  # TODO: refactor this function using **kwargs
+        kwargs = {"bot": self.telegram_bot,
+                  "chat": chat,
+                  "message": message,
+                  "function_id": function_id,
+                  "is_new": is_new,
+                  "postgre_manager": self.postgre_manager}
+        if "quotes_user" in dir(function):
+            kwargs.update({"quotes_user": [x for x in self.quotes_users if x.telegram_id == user_x.telegram_id][0]})
+
+        return function(**kwargs)
 
     async def call_message(self, user_x: QuotesUser, message: TelegramMessage, chat: TelegramChat, txt: str):
         if '\nby ' in message.text:
