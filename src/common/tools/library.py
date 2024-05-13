@@ -23,7 +23,7 @@ from pathlib import Path
 # from mpl_finance import candlestick_ohlc
 from dataclasses import dataclass, fields
 import pytz
-
+from queue import Queue
 
 def class_from_args(class_name, arg_dict):
     field_set = {f.name for f in fields(class_name) if f.init}
@@ -32,35 +32,39 @@ def class_from_args(class_name, arg_dict):
 
 
 # __ Running main applications __
-def run_main(app, log_queue):
-
+def run_main(app, log_queue: Queue = None):
     killer = GracefulKiller()
     
     while app.run:
-        if not log_queue.empty():
-            info = log_queue.get_nowait()
-            if type(info) == logging.LogRecord:
-                txt = '[%s]  [%s]  %s' % (info.name, info.levelname, info.message)
-                app.telegram.send_message(chat_id=app.admin["chat"], text=txt, silent=True)
+        # if log_queue and not log_queue.empty():
+        #     info = log_queue.get_nowait()
+        #     if type(info) == logging.LogRecord:
+        #         txt = '[%s]  [%s]  %s' % (info.name, info.levelname, info.message)
+        #         app.telegram.send_message(chat_id=app.admin["chat"], text=txt, silent=True)
 
         # Check for SIGINT signal
         if killer.kill_now:
-            app.logger.info("Received SIGINT signal ...")
+            # app.logger.info("Received SIGINT signal ...")
+            print("Received SIGINT signal ...")
             app.close()
 
         sleep(1)
 
-    app.logger.info('Exiting main loop')
+    # app.logger.info('Exiting main loop')
+    print('Exiting main loop')
     start = time()
     while len([x for x in threading.enumerate() if not x.daemon]) > 1 and not time_out(start, 10):
         sleep(0.25)
 
     if len([x for x in threading.enumerate() if not x.daemon]) > 1:
-        app.logger.warning('Forcing thread closure')
+        # app.logger.warning('Forcing thread closure')
+        print('Forcing thread closure')
         for thread in threading.enumerate():
-            app.logger.info(thread)
+            # app.logger.info(thread)
+            print(thread)
     else:
-        app.logger.info('All threads ended correctly')
+        # app.logger.info('All threads ended correctly')
+        print('All threads ended correctly')
 
 
 def get_environ():

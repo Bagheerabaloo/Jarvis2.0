@@ -14,8 +14,6 @@ class FunctionNewNote(QuotesFunction):
     text: str = ''
 
     async def state_1(self):
-        chat_id = self.chat.chat_id
-
         if self.telegram_function.is_back(depth=2):
             page = self.message.text
             self.telegram_function.settings["pag"] = page
@@ -43,7 +41,7 @@ class FunctionNewNote(QuotesFunction):
         tag = self.message.last_message()
 
         if tag == 'book':
-            books = self.postgre_manager.get_last_books(max_books=4)
+            books = self.get_last_books(max_books=4)
             self.telegram_function.settings['is_book'] = True
             keyboard = self.square_keyboard(books)
             await self.send_message(chat_id=self.chat.chat_id, text='Which book?', keyboard=keyboard)
@@ -69,7 +67,7 @@ class FunctionNewNote(QuotesFunction):
     async def state_3(self):
         book = self.message.last_message()
         self.telegram_function.settings['book'] = book
-        last_pag = self.postgre_manager.get_last_page(book=book)
+        last_pag = self.get_last_page(book=book)
         keyboard = self.square_keyboard(list(range(last_pag, last_pag + 9)))
         await self.send_message(chat_id=self.chat.chat_id, text='Insert page', keyboard=keyboard)
         return self.telegram_function.back(steps=2)

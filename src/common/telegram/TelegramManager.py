@@ -64,6 +64,7 @@ class TelegramManager:
     """ ########### Close ############ """
     def close_telegram_manager(self):
         self.run = False
+        self.postgre_manager.close_connection()
 
     def close(self):
         self.close_telegram_manager()
@@ -188,7 +189,7 @@ class TelegramManager:
         # TODO: handle functions that are restricted -> they can't be called from here
         try:
             if telegram_message.message_type == TelegramMessageType.COMMAND:
-                await self.__command(user_x=user_x, message=telegram_message, chat=telegram_chat)
+                await self.execute_command(user_x=user_x, message=telegram_message, chat=telegram_chat)
             elif telegram_message.message_type == TelegramMessageType.MESSAGE:
                 await self.__message(user_x=user_x, message=telegram_message, chat=telegram_chat)
             elif telegram_message.message_type == TelegramMessageType.CALLBACK:
@@ -220,13 +221,18 @@ class TelegramManager:
         # TODO: add restricted constraint
         return [x.function for x in self.commands if name == x.function.name and (not x.admin or user_x.is_admin)]
 
-    async def __command(self, user_x: TelegramUser, message: TelegramMessage, chat: TelegramChat):
+    async def execute_command(self,
+                              user_x: TelegramUser,
+                              message: TelegramMessage,
+                              chat: TelegramChat,
+                              initial_settings: dict = None,
+                              initial_state: int = 1):  # TODO: add type of output
         command = message.text.strip('/')
         function = await self.get_function_by_alias(alias=command, chat_id=message.chat_id, user_x=user_x)
         if not function:
-            return
+            return False
         initialized_function = self.instantiate_function(function=function, chat=chat, message=message, is_new=True, function_id=message.message_id, user_x=user_x)
-        await self.__execute_function(function=initialized_function)
+        return await self.__execute_function(function=initialized_function, initial_settings=initial_settings, initial_state=initial_state)
         # FunctionFactory.get_function(function_type=function_type[0], bot=self.telegram_bot, chat=chat, message=message, function_id=message.message_id, is_new=True)
 
     async def __message(self, user_x: TelegramUser, message: TelegramMessage, chat: TelegramChat):
@@ -302,9 +308,9 @@ class TelegramManager:
         # self.telegram.send_callback(callback_id=update['callback_id'], text='Inline Keyboard has Expired')
         # return False
 
-    async def __execute_function(self, function: Function):
+    async def __execute_function(self, function: Function, initial_settings: dict = None, initial_state: int = 1):
         # __ execute the function normally __
-        await function.execute()
+        await function.execute(initial_settings=initial_settings, initial_state=initial_state)
         # __ checks if users must be refreshed __
         if function.need_to_update_users:
             self.update_users()

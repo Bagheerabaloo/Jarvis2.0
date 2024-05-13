@@ -25,6 +25,7 @@ from src.quotes.functions.FunctionBack import FunctionBack
 from src.quotes.functions.FunctionQuotesNewUser import FunctionQuotesNewUser
 from src.quotes.functions.FunctionRandomQuote import FunctionRandomQuote
 from src.quotes.functions.FunctionShowQuotes import FunctionShowQuote
+from src.quotes.functions.FunctionNewQuote import FunctionNewQuote
 from src.quotes.functions.FunctionNewNote import FunctionNewNote
 from src.quotes.functions.FunctionShowNotes import FunctionShowNotes
 from src.quotes.functions.FunctionDailyQuote import FunctionDailyQuote
@@ -65,6 +66,30 @@ class Quotes(TelegramManager):
     def app_users(self):
         return self.quotes_users
 
+    def close(self):
+        self.__close_quote_timer()
+        self.__close_note_timer()
+        self.close_telegram_manager()
+
+    def __close_quote_timer(self):
+        try:
+            self.quote_timer.cancel()
+        except:
+            print('unable to close quote timer')
+            pass
+
+    def __close_note_timer(self):
+        try:
+            self.note_timer_eta_1.cancel()
+        except:
+            print('unable to close note timer eta 1')
+            pass
+        try:
+            self.note_timer_eta_2.cancel()
+        except:
+            print('unable to close note timer eta 2')
+            pass
+
     def instantiate_function(self, function, chat: TelegramChat, message: TelegramMessage, is_new: bool, function_id: int, user_x: TelegramUser) -> Function:
         # print(isinstance(function.__class__.__name__, Quotes))
         if "quotes_user" not in dir(function):
@@ -87,48 +112,38 @@ class Quotes(TelegramManager):
 
     async def call_message(self, user_x: QuotesUser, message: TelegramMessage, chat: TelegramChat, txt: str):
         if '\nby ' in message.text:
-            txt = message.text.split('by ')
-            author = txt.pop().replace('_', ' ')
-
-            txt = 'by '.join(txt) if len(txt) > 1 else txt[0]
-
-            if 'Forwarded' in txt:
-                txt = txt.split('\n')
-                txt.pop(0)
-                quote = '\n'.join(txt)
-            else:
-                quote = txt
-
-            while quote[-1] == '\n':
-                quote = quote[:-1]
-
-            quotes = self.postgre_manager.check_for_similar_quotes(quote=quote)
-            if quotes and len(quotes) > 0:
-                text = 'There is already a similar quote in DB:\n\n' + quotes[0]['quote'] + '\n\n_' + quotes[0]['author'].replace('_', ' ') + '_'
-                await self.telegram_bot.send_message(chat_id=message.chat_id, text=text, parse_mode="Markdown")
-                return False
-
-            if not self.postgre_manager.insert_quote(telegram_id=user_x.telegram_id, quote=quote, author=author):
-                await self.telegram_bot.send_message(chat_id=message.chat_id, text='Quote already present in DB')
-            else:
-                # self.logger.warning('New quote added by: ' + user_x.name + ' ' + str(user_x.id))
-                await self.telegram_bot.send_message(chat_id=message.chat_id, text='Quote added to DB')
-
-            return True
+            quote, author = self.handle_new_quote(text=message.text)
+            settings = {"quote": quote,
+                        "author": author}
+            message.text = "newQuote"          # TODO: implement this by passing to execute_commands directly the command
+            return await self.execute_command(user_x=user_x, message=message, chat=chat, initial_settings=settings, initial_state=4)
 
         elif user_x.is_admin:
-            function = await self.get_function_by_alias(alias='note', chat_id=message.chat_id, user_x=user_x)
-            if not function:
-                return
-            instantiated_function = self.instantiate_function(function=function, chat=chat, message=message, is_new=True, function_id=message.message_id, user_x=user_x)
-            instantiated_function.initialize()
-            instantiated_function.telegram_function.settings["note"] = message.text
-            await instantiated_function.evaluate()
-            instantiated_function.post_evaluate()  # TODO: create in Function method "execute with initial settings"
-            return True
+            settings = {"note": message.text}
+            message.text = "note"
+            return await self.execute_command(user_x=user_x, message=message, chat=chat, initial_settings=settings)
 
         await self.telegram_bot.send_message(chat_id=message.chat_id, text='No command running')
         return False
+
+    @staticmethod
+    def handle_new_quote(text: str) -> (str, str):
+        txt = text.split('by ')
+        author = txt.pop().replace('_', ' ')
+
+        txt = 'by '.join(txt) if len(txt) > 1 else txt[0]
+
+        if 'Forwarded' in txt:
+            txt = txt.split('\n')
+            txt.pop(0)
+            quote = '\n'.join(txt)
+        else:
+            quote = txt
+
+        while quote[-1] == '\n':
+            quote = quote[:-1]
+
+        return quote, author
 
     async def handle_app_new_user(self,
                                   admin_user: QuotesUser,
@@ -136,18 +151,13 @@ class Quotes(TelegramManager):
                                   new_telegram_user: TelegramUser,
                                   new_telegram_chat: TelegramChat):
 
-        function = await self.get_function_by_alias(alias='appNewUser', chat_id=admin_chat.chat_id, user_x=admin_user)
-        if not function:
-            return
         message = self._build_new_telegram_message(chat=admin_chat, text='appNewUser')
         admin_chat.new_message(telegram_message=message)
-        instantiated_function = self.instantiate_function(function=function, chat=admin_chat, message=message, is_new=True, function_id=message.message_id, user_x=admin_user)
-        instantiated_function.initialize()
-        instantiated_function.telegram_function.settings["new_user"] = new_telegram_user
-        instantiated_function.telegram_function.settings["new_chat"] = new_telegram_chat
-        instantiated_function.telegram_function.settings["app"] = self.name
-        await instantiated_function.evaluate()
-        instantiated_function.post_evaluate()  # TODO: create in Function method "execute with initial settings"
+        settings = {"new_user": new_telegram_user,
+                    "new_chat": new_telegram_chat,
+                    "app": self.name}
+
+        return await self.execute_command(user_x=admin_user, message=message, chat=admin_chat, initial_settings=settings)
 
     def app_update_users(self):
         print('\n### refreshing quotes users ###\n')
@@ -196,23 +206,18 @@ class Quotes(TelegramManager):
                 author = quote['author'].replace('_', ' ')
                 text = f"*Quote of the day*\n\n{quote_in_language}\n\n_{author}_"
 
-                function = await self.get_function_by_alias(alias='dailyQuote', chat_id=user.telegram_id, user_x=user)
-                if not function:
-                    continue
-
                 chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
                 message = self._build_new_telegram_message(chat=chat, text='dailyQuote')
-                instantiated_function = self.instantiate_function(function=function, chat=chat, message=message, is_new=True, function_id=message.message_id, user_x=user)
-                instantiated_function.initialize()
-                instantiated_function.telegram_function.settings["text"] = text
-                await instantiated_function.evaluate()
-                instantiated_function.post_evaluate()
+                settings = {"text": text}
+                await self.execute_command(user_x=user, message=message, chat=chat, initial_settings=settings)
+
             sleep(0.2)
         print(f"Sending daily quotes completed at {timestamp2date(time())}")
 
     def __init_book_timer(self):
         eta_1 = build_eta(target_hour=12, target_minute=00)
         eta_2 = build_eta(target_hour=18, target_minute=00)
+        # eta_2 = 20
 
         print('Next Note 1 set in ' + str(to_int(eta_1/3600)) + 'h:' + str(to_int((eta_1 % 3600)/60)) + 'm:' + str(to_int(((eta_1 % 3600) % 60))) + 's:')
         print('Next Note 2 set in ' + str(to_int(eta_2/3600)) + 'h:' + str(to_int((eta_2 % 3600)/60)) + 'm:' + str(to_int(((eta_2 % 3600) % 60))) + 's:')
@@ -254,7 +259,7 @@ class Quotes(TelegramManager):
 
         note = choice(notes)
         book = note["book"]
-        notes = self.postgre_manager.get_notes_with_tags_by_book(book=book)
+        notes = self.postgre_manager.get_notes_with_tags_by_book(book=book)  # TODO: order by page or created
         index = next((index for (index, d) in enumerate(notes) if d["id"] == note["note_id"]), None)
         self.postgre_manager.update_note_by_note_id(note_id=note['note_id'], set_params={'last_random_time': to_int(time())})
 
@@ -264,17 +269,14 @@ class Quotes(TelegramManager):
                 function = await self.get_function_by_alias(alias='dailyBook', chat_id=user.telegram_id, user_x=user)
                 if not function:
                     continue
-
                 chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
                 message = self._build_new_telegram_message(chat=chat, text='dailyBook')
-                instantiated_function = self.instantiate_function(function=function, chat=chat, message=message, is_new=True, function_id=message.message_id, user_x=user)
-                instantiated_function.initialize()
-                instantiated_function.telegram_function.settings["note"] = note
-                instantiated_function.telegram_function.settings["book"] = book
-                instantiated_function.telegram_function.settings["index"] = index
-                instantiated_function.telegram_function.settings["notes"] = notes
-                await instantiated_function.evaluate()
-                instantiated_function.post_evaluate()
+                settings = {"note": note,
+                            "book": book,
+                            "index": index,
+                            "notes": notes}
+                await self.execute_command(user_x=user, message=message, chat=chat, initial_settings=settings)
+
             sleep(0.2)
         print(f"Sending daily book notes completed at {timestamp2date(time())}")
 
@@ -306,7 +308,7 @@ def main():
     telegram_users = postgre_manager.get_telegram_users(admin_user=admin_user)
     telegram_chats = postgre_manager.get_telegram_chats_from_db(admin_chat=admin_chat)
 
-    commands = [
+    commands = [    # TODO: move to YAML
         Command(alias=["back"], admin=False, function=FunctionBack),
         Command(alias=["help"], admin=False, function=FunctionHelp),
         Command(alias=["ciao", "hello"], admin=True, function=FunctionCiao),
@@ -315,8 +317,9 @@ def main():
         Command(alias=["start"], admin=False, function=FunctionStart),
         Command(alias=["quote"], admin=False, function=FunctionRandomQuote),
         Command(alias=["showQuotes"], admin=False, function=FunctionShowQuote),
+        Command(alias=["newQuote"], admin=True, function=FunctionNewQuote),
         Command(alias=["note"], admin=True, function=FunctionNewNote),
-        Command(alias=["showNotes"], admin=True, function=FunctionShowNotes),
+        Command(alias=["showNotes"], admin=False, function=FunctionShowNotes),
         Command(alias=["settings"], admin=False, function=FunctionQuotesSettings),
         Command(alias=["appNewUser"], admin=True, function=FunctionQuotesNewUser, restricted=True),
         Command(alias=["dailyQuote"], admin=False, function=FunctionDailyQuote, restricted=True),
@@ -325,15 +328,7 @@ def main():
 
     quotes = Quotes(token=token, users=telegram_users, chats=telegram_chats, commands=commands, postgre_manager=postgre_manager)
     quotes.start()
-    # asyncio.run(telegram_manager.telegram_bot.send_message(chat_id=19838246, text='ciao', inline_keyboard=[['<', '>']]))
-
-    # tables = [x[0] for x in postgre_manager.get_tables()]
-    # init_tables(postgre_manager=postgre_manager, tables=tables) if init_tables else None
-
-    while quotes.run:
-        sleep(0.5)
-
-    # LOGGER.info('end')
+    run_main(app=quotes)
 
 
 if __name__ == '__main__':

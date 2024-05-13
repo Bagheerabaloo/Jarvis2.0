@@ -123,7 +123,7 @@ class TelegramBot:
         if len(text) > 4096:
             return self.split_and_send_message(text=text, chat_id=chat_id, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent)
 
-        num_of_tries = 0
+        num_of_tries = 0  # TODO: replace this section with pending messages
         response = None
         while not response and num_of_tries < 10:
             try:

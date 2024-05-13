@@ -7,34 +7,6 @@ from src.quotes.QuotesUser import QuotesUser
 
 
 class QuotesPostgreManager(PostgreManager):
-    def get_last_books(self, max_books: int = 4):  # TODO: move to QuoteFunction
-        notes = self.get_notes()
-        sorted_notes = sorted(notes, key=lambda d: d['created'], reverse=True)
-
-        # books = list(set([x['book'] for x in sorted_notes if x['book']]))
-        books = set()
-        books_add = books.add
-        books = [x['book'] for x in sorted_notes if not (x['book'] in books or books_add(x['book']))]
-        if len(books) > max_books:
-            books = books[:max_books]
-        return books
-
-    def get_last_page(self, book: str = None) -> int:    # TODO: move to QuoteFunction
-        notes = self.get_notes()
-        sorted_notes = sorted(notes, key=lambda d: d['created'], reverse=True)
-
-        if book:
-            sorted_notes = [x for x in sorted_notes if x['book'] == book]
-            if len(sorted_notes) > 0:
-                pages = [int(x['pag']) for x in sorted_notes if x['pag']]
-                return max(pages) if len(pages) > 0 else 1
-            return 1
-
-        # last_pages = [x for x in sorted_notes if x is not None]
-        # if len(last_pages) > 0:
-        #     return last_pages[0]
-
-        return 1
 
     """ ____ DB: Users Collection _____"""
     @staticmethod

@@ -15,6 +15,10 @@ class FunctionShowNotes(QuotesFunction):
     # index: int = 0
 
     async def state_1(self):
+        if not self.quotes_user.super_user:
+            await self.send_message(chat_id=self.chat.chat_id, text="This is a privileged feature. Ask your administrator to proceed.")
+            return self.close_function()
+
         self.telegram_function.settings["notes"] = self.postgre_manager.get_notes_with_tags()
         notes = self.telegram_function.settings["notes"]
 

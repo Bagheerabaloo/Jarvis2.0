@@ -31,9 +31,10 @@ class Function(ABC):
     def app_user(self):
         return self.telegram_user
 
-    def initialize(self):
+    def initialize(self, initial_state: int = 1):
         if self.is_new:
             self.telegram_function = self.chat.new_function(telegram_message=self.message, function_name=self.name)
+            self.telegram_function.state = initial_state
         else:
             self.telegram_function = self.chat.get_function_by_message_id(message_id=self.function_id)
 
@@ -66,8 +67,10 @@ class Function(ABC):
         if self.is_new:
             self.chat.append_function(telegram_function=self.telegram_function)
 
-    async def execute(self):
-        self.initialize()
+    async def execute(self, initial_settings: dict = None, initial_state: int = 1):
+        self.initialize(initial_state=initial_state)
+        if initial_settings:
+            self.telegram_function.settings.update(initial_settings)
         await self.evaluate()
         self.post_evaluate()
 

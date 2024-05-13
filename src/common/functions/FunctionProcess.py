@@ -13,14 +13,7 @@ from src.common.functions.Function import Function
 class FunctionProcess(Function):
     name: str = 'process'
 
-    def evaluate(self):
-        match self.telegram_function.state:
-            case 1:
-                return self.state_1()
-            case _:
-                raise ValueError("Invalid function type")
-
-    def state_1(self):
+    async def state_1(self):
         def convert_size(size_bytes):
             if size_bytes == 0:
                 return "0B"
@@ -48,6 +41,6 @@ class FunctionProcess(Function):
             for thread in [thread for thread in thread_enumerate() if thread.daemon]:
                 text += '\n    {}'.format(thread.name)
 
-        self.send_message(chat_id=self.chat.chat_id, text=text)
+        await self.send_message(chat_id=self.chat.chat_id, text=text)
         self.close_function()
 
