@@ -6,6 +6,7 @@ from src.common.functions.Function import Function
 from src.common.postgre.PostgreManager import PostgreManager
 from src.quotes.QuotesUser import QuotesUser
 from src.quotes.functions.QuotesFunction import QuotesFunction
+from src.quotes.Quote import Quote
 
 
 @dataclass
@@ -35,12 +36,13 @@ class FunctionNewQuote(QuotesFunction):
 
         similar_quotes = self.postgre_manager.check_for_similar_quotes(quote=quote)
         if similar_quotes and len(similar_quotes) > 0:
-            text = 'There is already a similar quote in DB:\n\n' + similar_quotes[0]['quote'] + '\n\n_' + similar_quotes[0]['author'].replace('_', ' ') + '_'
+            text = 'There is already a similar quote in DB:\n\n' + similar_quotes[0].quote + '\n\n_' + similar_quotes[0].author.replace('_', ' ') + '_'
             await self.send_message(chat_id=self.chat.chat_id, text=text, parse_mode="Markdown")
             self.close_function()
             return False
 
-        if not self.postgre_manager.insert_quote(telegram_id=self.quotes_user.telegram_id, quote=quote, author=author):
+        quote_obj = Quote(quote=quote, author=author, telegram_id=self.quotes_user.telegram_id)
+        if not self.postgre_manager.insert_quote(quote=quote_obj):
             await self.send_message(chat_id=self.chat.chat_id, text='Quote already present in DB')
         else:
             # self.logger.warning('New quote added by: ' + user_x.name + ' ' + str(user_x.id))

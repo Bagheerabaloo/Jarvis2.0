@@ -4,6 +4,7 @@ from typing import List, Type, Optional
 from src.common.tools.library import class_from_args, int_timestamp_now
 from src.common.postgre.PostgreManager import PostgreManager
 from src.quotes.QuotesUser import QuotesUser
+from src.quotes.Quote import Quote
 
 
 class QuotesPostgreManager(PostgreManager):
@@ -59,18 +60,29 @@ class QuotesPostgreManager(PostgreManager):
         return self.update_query(query, commit=commit)
 
     """ ____ DB: Quotes Collection _____"""
-    def find_quotes(self, params):
+    def get_quotes(self, params: dict) -> List[Quote]:
         params = ' AND '.join([key + f" = '{params[key]}'" if type(params[key]) is str else key + f" = {params[key]}" for key in params])
-        return self.select_query(f"SELECT * FROM quotes WHERE {params}")
+        quotes = self.select_query(f"SELECT * FROM quotes WHERE {params}")
+        return [class_from_args(Quote, x) for x in quotes] if quotes else []
 
-    def get_quotes_with_tags(self) -> List[dict]:
-        query = f"""SELECT *
-                    FROM quotes Q 
-                    LEFT JOIN (SELECT quote_id AS id FROM quotes) TEMP ON TEMP.id = Q.quote_id
-                    LEFT JOIN tags T ON Q.quote_id = T.quote_id
-                    """
+    def get_last_random_quotes(self) -> List[Quote]:
+        query = """
+                SELECT *
+                FROM quotes
+                ORDER BY last_random_tme
+                LIMIT 100
+                """
+        quotes = self.select_query(query=query)
+        return [class_from_args(Quote, x) for x in quotes] if quotes else []
+
+    def get_quotes_with_tags(self) -> List[Quote]:
+        query = f"""
+                SELECT *
+                FROM quotes Q 
+                LEFT JOIN (SELECT quote_id AS id FROM quotes) TEMP ON TEMP.id = Q.quote_id
+                LEFT JOIN tags T ON Q.quote_id = T.quote_id
+                """
         results = self.select_query(query=query)
-
         if not results:
             return []
 
@@ -81,43 +93,46 @@ class QuotesPostgreManager(PostgreManager):
             temp_quotes = [x for x in results if x['id'] == quote_id]
             quote = {key: temp_quotes[0][key] for key in temp_quotes[0] if key not in ['tag_id', 'tag', 'note_id', 'quote_id']}
             quote.update({'tags': [x['tag'] for x in temp_quotes if x["tag"]]})
+            quote['quote_id'] = quote.pop('id')
             quotes.append(quote)
 
-        return quotes
+        return [class_from_args(Quote, x) for x in quotes]
 
-    def check_for_similar_quotes(self, quote: str):
+    def check_for_similar_quotes(self, quote: str) -> List[Quote]:
         words = re.findall(r'\w+', quote)
         where = '%\' AND UPPER(quote) LIKE \'%'.join([x.upper() for x in words])
         quotes = self.select_query(f"SELECT * FROM quotes WHERE (UPPER(quote) LIKE '%{where}%')")
-        return quotes if len(quotes) > 0 else []
+        if not quotes or len(quotes) == 0:
+            return []
+        return [class_from_args(Quote, x) for x in quotes]
 
-    def insert_quote(self,
-                     telegram_id: int,
-                     quote: str,
-                     author: str,
-                     translation: str = None,
-                     quote_ita: str = None,
-                     private: bool = True,
-                     tags: List[str] = None,
-                     commit: bool = True):
+    def insert_quote(self, quote: Quote, commit: bool = True) -> bool:
         query = f"""
                 INSERT INTO quotes
                 (quote, author, translation, quote_ita, last_random_tme, telegram_id, private, created, last_modified)
                 VALUES
-                ($${quote}$$, $${author}$$, $${translation}$$, $${quote_ita}$$, {int_timestamp_now()}, {telegram_id}, {private}, {int_timestamp_now()}, {int_timestamp_now()})
+                ($${quote.quote}$$, $${quote.author}$$, $${quote.translation}$$, $${quote.quote_ita}$$, {int_timestamp_now()}, {quote.telegram_id}, {quote.private}, {int_timestamp_now()}, {int_timestamp_now()})
                 """
-        if not self.insert_query(query=query, commit=commit):
+        if not self.insert_query(query=query, commit=False):
+            self.rollback()
             return False
-        if not tags:
+        if not quote.tags:
+            if commit:
+                self.commit()
             return True
 
-        quotes = self.find_quotes({'quote': quote, 'author': 'author'})
-        for tag in tags:
-            self.insert_tag(tag=tag, quote_id=quotes[0]['quote_id'], commit=commit)
-
+        quotes = self.get_quotes({'quote': quote, 'author': 'author'})
+        success: bool = True
+        for tag in quote.tags:
+            success &= self.insert_tag(tag=tag, quote_id=quotes[0].quote_id, commit=False)
+        if not success:
+            self.rollback()
+            return False
+        if commit:
+            self.commit()
         return True
 
-    def update_quote_by_quote_id(self, quote_id, set_params):
+    def update_quote_by_quote_id(self, quote_id: int, set_params: dict) -> bool:
         set_params = ','.join([key + f" = '{set_params[key]}'" if type(set_params[key]) is str else key + f" = {set_params[key]}" for key in set_params])
 
         query = f"""
@@ -189,6 +204,7 @@ class QuotesPostgreManager(PostgreManager):
                     LEFT JOIN (SELECT note_id AS id FROM notes) TEMP ON TEMP.id = N.note_id
                     LEFT JOIN tags T ON T.note_id = N.note_id
                     WHERE N.book = $${book}$$
+                    ORDER BY N.pag, N.created
                     """
         results = self.select_query(query=query)
 
@@ -235,7 +251,7 @@ class QuotesPostgreManager(PostgreManager):
         return updated
 
     """ ______ DB: Tags Collection _____ """
-    def insert_tag(self, tag: str, quote_id: str = None, note_id: str = None, commit: bool = True) -> bool:
+    def insert_tag(self, tag: str, quote_id: int = None, note_id: str = None, commit: bool = True) -> bool:
         if not quote_id and not note_id:
             return False
 
@@ -286,9 +302,9 @@ class QuotesPostgreManager(PostgreManager):
         return self.delete_query(query, commit=True)
 
     @staticmethod
-    def get_quote_in_language(quote: dict, user: QuotesUser) -> str:
-        quote_in_language = quote['quote_ita'] if user.language == 'ITA' else quote['quote']
-        return quote_in_language if quote_in_language else quote['quote']
+    def get_quote_in_language(quote: Quote, user: QuotesUser) -> str:
+        quote_in_language = quote.quote_ita if user.language == 'ITA' else quote.quote
+        return quote_in_language if quote_in_language else quote.quote
 
 
 if __name__ == '__main__':

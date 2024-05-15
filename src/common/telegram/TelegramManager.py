@@ -189,7 +189,8 @@ class TelegramManager:
         # TODO: handle functions that are restricted -> they can't be called from here
         try:
             if telegram_message.message_type == TelegramMessageType.COMMAND:
-                await self.execute_command(user_x=user_x, message=telegram_message, chat=telegram_chat)
+                command = telegram_message.text.strip('/')
+                await self.execute_command(user_x=user_x, command=command, message=telegram_message, chat=telegram_chat)
             elif telegram_message.message_type == TelegramMessageType.MESSAGE:
                 await self.__message(user_x=user_x, message=telegram_message, chat=telegram_chat)
             elif telegram_message.message_type == TelegramMessageType.CALLBACK:
@@ -223,16 +224,17 @@ class TelegramManager:
 
     async def execute_command(self,
                               user_x: TelegramUser,
+                              command: str,
                               message: TelegramMessage,
                               chat: TelegramChat,
                               initial_settings: dict = None,
                               initial_state: int = 1):  # TODO: add type of output
-        command = message.text.strip('/')
         function = await self.get_function_by_alias(alias=command, chat_id=message.chat_id, user_x=user_x)
         if not function:
             return False
         initialized_function = self.instantiate_function(function=function, chat=chat, message=message, is_new=True, function_id=message.message_id, user_x=user_x)
-        return await self.__execute_function(function=initialized_function, initial_settings=initial_settings, initial_state=initial_state)
+        await self.__execute_function(function=initialized_function, initial_settings=initial_settings, initial_state=initial_state)
+        return initialized_function
         # FunctionFactory.get_function(function_type=function_type[0], bot=self.telegram_bot, chat=chat, message=message, function_id=message.message_id, is_new=True)
 
     async def __message(self, user_x: TelegramUser, message: TelegramMessage, chat: TelegramChat):
@@ -348,9 +350,9 @@ class TelegramManager:
     """ ########### Telegram users management ############ """
     async def __handle_command_start(self, message: TelegramMessage, user_x: Type[app_users]):
         if len(user_x) == 0:
-            return await self.__handle_new_user(message=message)  # TODO: handle case in which user keeps sending command /start
+            return await self.__handle_new_user(message=message, user_x=user_x)  # TODO: handle case in which user keeps sending command /start
 
-    async def __handle_new_user(self, message: TelegramMessage):
+    async def __handle_new_user(self, message: TelegramMessage, user_x: Type[app_users]):
         if message.chat_id != message.from_id:
             return None
 
@@ -361,17 +363,19 @@ class TelegramManager:
         """##### FunctionStart for new user #####"""
         # await self.__command(user_x=telegram_user, message=message, chat=telegram_chat)
         function = FunctionStart
-        instantiated_function = self.instantiate_function(function=function, chat=telegram_chat, message=message, is_new=True, function_id=message.message_id, user_x=telegram_user)
-        instantiated_function.initialize()
-        instantiated_function.telegram_function.settings["app"] = self.name
-        await instantiated_function.evaluate()
-        instantiated_function.post_evaluate()  # TODO: create in Function method "execute with initial settings"
 
-        # __ get admin user __
-        admin_user = self.get_admin_user()
-        admin_chat = self.get_admin_chat()
+        settings = {"app": self.name}
+        function = await self.execute_command(user_x=user_x,
+                                              command="start",
+                                              message=message,
+                                              chat=telegram_chat,
+                                              initial_settings=settings)
 
-        if "first_send" in instantiated_function.telegram_function.settings and instantiated_function.telegram_function.settings["first_send"]:
+        if "first_send" in function.telegram_function.settings and function.telegram_function.settings["first_send"]:
+            # __ get admin user __
+            admin_user = self.get_admin_user()
+            admin_chat = self.get_admin_chat()
+
             # FunctionAppNewUser for admin user
             await self.handle_app_new_user(admin_user=admin_user,
                                            admin_chat=admin_chat,
@@ -417,112 +421,6 @@ class TelegramManager:
         admin_user = self.get_admin_user()
         admin_user_id = admin_user.telegram_id
         return [x for x in self.chats if x.chat_id == admin_user_id][0]
-
-    def show_users(self, user_x):
-        for user in self.users:
-            self.send_message(user_x=user_x, text=user.name + ' ' + str(user.telegram_id))
-            sleep(0.2)
-
-    def validate_user(self, user_x):
-
-        # STATE 0
-        if user_x.state_function == 0:
-
-            if len(self.user_requests) == 0:
-                self.telegram.send_message(chat_id=user_x.last_chat_id, text="No user requests")
-                return user_x.reset()
-
-            new_request = self.user_requests.pop()
-            user_x.function_variables['new_request'] = new_request
-
-            txt = "Add user " + new_request['name'] + ' (chat ID: ' + str(new_request['from_id']) + ')?'
-
-            self.send_message(user_x=user_x, text=txt)
-
-            return user_x.next()
-
-        # STATE 1
-        if user_x.state_function == 1:
-
-            entry = user_x.last_message.upper()
-
-            if entry not in {'YES', 'NO'}:
-                self.telegram.send_message(chat_id=user_x.last_chat_id, text='Wrong Entry')
-                return user_x
-
-            if user_x.last_message.upper() == 'YES':
-                request = user_x.function_variables['new_request']
-
-                new_user = TelegramUser(user_id=request['from_id'],
-                                        name=request['name'],
-                                        username=request['username'],
-                                        is_admin=False)
-
-                self.add_user_to_list(new_user)
-                self.add_user_to_db(new_user)
-                self.welcome_user(new_user)
-
-        return self.back_to_master(user_x)
-
-    def delete_user(self, user_x):
-
-        # STATE 0
-        if user_x.state_function == 0:
-
-            if len([x for x in self.users if x.is_admin]) == 0:
-                self.telegram.send_message(chat_id=user_x.last_chat_id, text="No user to delete")
-                return user_x.reset()
-
-            txt = 'Users\n'
-
-            for user in self.users:
-                txt += user.name + ' ' + str(user.telegram_id) + '\n'
-
-            txt += 'Select user ID to delete'
-            keyboard = self.square_keyboard([str(x.telegram_id) for x in self.users])
-            self.send_message(user_x=user_x, text=txt, keyboard=keyboard)
-            return user_x.next()
-
-        # STATE 1
-        if user_x.state_function == 1:
-
-            user_id = int(user_x.last_message)
-
-            if user_id not in [x.telegram_id for x in self.users]:
-                self.send_message(user_x=user_x, text='Wrong Entry')
-                return user_x.same()
-
-            user_x.function_variables['user_id'] = user_id
-            user_name = [x.name for x in self.users if x.telegram_id == user_id][0]
-
-            txt = "You're about to delete user {} id: {}\nConfirm?".format(user_name, user_id)
-            keyboard = [['YES', 'NO']]
-
-            self.send_message(user_x=user_x, text=txt, keyboard=keyboard)
-            return user_x.next()
-
-        # STATE 2
-        if user_x.state_function == 2:
-
-            entry = user_x.last_message.upper()
-
-            if entry not in ['YES', 'NO']:
-                self.send_message(user_x=user_x, text='Wrong Entry')
-                return user_x.same()
-
-            if entry == 'YES':
-
-                self.remove_user_from_list(user_x.function_variables['user_id'])
-                self.remove_user_from_db(user_x.function_variables['user_id'])
-                self.send_message(user_x=user_x, text='User deleted')
-
-            else:
-                self.send_message(user_x=user_x, text='Function aborted')
-
-        return self.back_to_master(user_x)
-
-    def welcome_user(self, user):
-        self.send_message(user_x=user, text="Welcome!", end_keyboard=self.keyboard)
 
     """ ########### Logger ############ """
     def __init_logger(self, logger_level, logging_queue):
@@ -599,7 +497,6 @@ class TelegramManager:
             self.send_message(user_x=user_x, text='Level Set', end_keyboard=self.current_keyboard)
 
         return self.back_to_master(user_x)
-
 
 
 """ New Chat

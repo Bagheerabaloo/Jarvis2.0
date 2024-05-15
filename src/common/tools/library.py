@@ -25,6 +25,7 @@ from dataclasses import dataclass, fields
 import pytz
 from queue import Queue
 
+
 def class_from_args(class_name, arg_dict):
     field_set = {f.name for f in fields(class_name) if f.init}
     filtered_arg_dict = {k: v for k, v in arg_dict.items() if k in field_set}

@@ -66,31 +66,13 @@ class Quotes(TelegramManager):
     def app_users(self):
         return self.quotes_users
 
-    def close(self):
-        self.__close_quote_timer()
-        self.__close_note_timer()
-        self.close_telegram_manager()
-
-    def __close_quote_timer(self):
-        try:
-            self.quote_timer.cancel()
-        except:
-            print('unable to close quote timer')
-            pass
-
-    def __close_note_timer(self):
-        try:
-            self.note_timer_eta_1.cancel()
-        except:
-            print('unable to close note timer eta 1')
-            pass
-        try:
-            self.note_timer_eta_2.cancel()
-        except:
-            print('unable to close note timer eta 2')
-            pass
-
-    def instantiate_function(self, function, chat: TelegramChat, message: TelegramMessage, is_new: bool, function_id: int, user_x: TelegramUser) -> Function:
+    """ ###### OVERRIDING FUNCTIONS ##### """
+    def instantiate_function(self, function,
+                             chat: TelegramChat,
+                             message: TelegramMessage,
+                             is_new: bool,
+                             function_id: int,
+                             user_x: TelegramUser) -> Function:
         # print(isinstance(function.__class__.__name__, Quotes))
         kwargs = {"bot": self.telegram_bot,
                   "chat": chat,
@@ -103,21 +85,56 @@ class Quotes(TelegramManager):
 
         return function(**kwargs)
 
-    async def call_message(self, user_x: QuotesUser, message: TelegramMessage, chat: TelegramChat, txt: str):
+    async def call_message(self,
+                           user_x: QuotesUser,
+                           message: TelegramMessage,
+                           chat: TelegramChat,
+                           txt: str):
         if '\nby ' in message.text:
             quote, author = self.handle_new_quote(text=message.text)
             settings = {"quote": quote,
                         "author": author}
-            message.text = "newQuote"          # TODO: implement this by passing to execute_commands directly the command
-            return await self.execute_command(user_x=user_x, message=message, chat=chat, initial_settings=settings, initial_state=4)
+            return await self.execute_command(user_x=user_x,
+                                              command="newQuote",
+                                              message=message,
+                                              chat=chat,
+                                              initial_settings=settings,
+                                              initial_state=4)
 
         elif user_x.is_admin:
             settings = {"note": message.text}
-            message.text = "note"
-            return await self.execute_command(user_x=user_x, message=message, chat=chat, initial_settings=settings)
+            return await self.execute_command(user_x=user_x,
+                                              command="note",
+                                              message=message,
+                                              chat=chat,
+                                              initial_settings=settings)
 
         await self.telegram_bot.send_message(chat_id=message.chat_id, text='No command running')
         return False
+
+    async def handle_app_new_user(self,
+                                  admin_user: QuotesUser,
+                                  admin_chat: TelegramChat,
+                                  new_telegram_user: TelegramUser,
+                                  new_telegram_chat: TelegramChat):
+
+        message = self._build_new_telegram_message(chat=admin_chat, text='appNewUser')
+        admin_chat.new_message(telegram_message=message)
+        settings = {"new_user": new_telegram_user,
+                    "new_chat": new_telegram_chat,
+                    "app": self.name}
+        return await self.execute_command(user_x=admin_user,
+                                          command=message.text,
+                                          message=message,
+                                          chat=admin_chat,
+                                          initial_settings=settings)
+
+    def app_update_users(self):
+        print('\n### refreshing quotes users ###\n')
+        all_users = self.postgre_manager.get_quotes_users()
+        diff_users = [x for x in all_users if x.telegram_id not in [x.telegram_id for x in self.app_users]]
+        print(diff_users)
+        self.quotes_users += diff_users
 
     @staticmethod
     def handle_new_quote(text: str) -> (str, str):
@@ -138,28 +155,7 @@ class Quotes(TelegramManager):
 
         return quote, author
 
-    async def handle_app_new_user(self,
-                                  admin_user: QuotesUser,
-                                  admin_chat: TelegramChat,
-                                  new_telegram_user: TelegramUser,
-                                  new_telegram_chat: TelegramChat):
-
-        message = self._build_new_telegram_message(chat=admin_chat, text='appNewUser')
-        admin_chat.new_message(telegram_message=message)
-        settings = {"new_user": new_telegram_user,
-                    "new_chat": new_telegram_chat,
-                    "app": self.name}
-
-        return await self.execute_command(user_x=admin_user, message=message, chat=admin_chat, initial_settings=settings)
-
-    def app_update_users(self):
-        print('\n### refreshing quotes users ###\n')
-        all_users = self.postgre_manager.get_quotes_users()
-        diff_users = [x for x in all_users if x.telegram_id not in [x.telegram_id for x in self.app_users]]
-        print(diff_users)
-        self.quotes_users += diff_users
-
-    """ __ __ ROUTINES __ __"""
+    """ ###### ROUTINES ##### """
     def __init_quote_timer(self):
         dt = datetime.now(pytz.timezone('Europe/Rome'))
         eta = ((9 - dt.hour - 1) * 60 * 60) + ((60 - dt.minute - 1) * 60) + (60 - dt.second)
@@ -179,30 +175,26 @@ class Quotes(TelegramManager):
         asyncio.run(self.__daily_quote())
 
     async def __daily_quote(self):
-        query = """
-                SELECT *
-                FROM quotes
-                ORDER BY last_random_tme
-                LIMIT 100
-                """
-        quotes = self.postgre_manager.select_query(query=query)
-        if len(quotes) == 0:
-            return None
+        quotes = self.postgre_manager.get_last_random_quotes()
 
         quote = choice(quotes)
-        self.postgre_manager.update_quote_by_quote_id(quote_id=quote['quote_id'], set_params={'last_random_tme': to_int(time())})
+        self.postgre_manager.update_quote_by_quote_id(quote_id=quote.quote_id, set_params={'last_random_tme': to_int(time())})
 
         print(f"Start sending daily quotes at {timestamp2date(time())}")
         for user in self.quotes_users:
             if user.daily_quotes:
                 quote_in_language = self.postgre_manager.get_quote_in_language(quote=quote, user=user)
-                author = quote['author'].replace('_', ' ')
+                author = quote.author.replace('_', ' ')
                 text = f"*Quote of the day*\n\n{quote_in_language}\n\n_{author}_"
 
                 chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
                 message = self._build_new_telegram_message(chat=chat, text='dailyQuote')
                 settings = {"text": text}
-                await self.execute_command(user_x=user, message=message, chat=chat, initial_settings=settings)
+                await self.execute_command(user_x=user,
+                                           command=message.text,
+                                           message=message,
+                                           chat=chat,
+                                           initial_settings=settings)
 
             sleep(0.2)
         print(f"Sending daily quotes completed at {timestamp2date(time())}")
@@ -252,7 +244,7 @@ class Quotes(TelegramManager):
 
         note = choice(notes)
         book = note["book"]
-        notes = self.postgre_manager.get_notes_with_tags_by_book(book=book)  # TODO: order by page or created
+        notes = self.postgre_manager.get_notes_with_tags_by_book(book=book)
         index = next((index for (index, d) in enumerate(notes) if d["id"] == note["note_id"]), None)
         self.postgre_manager.update_note_by_note_id(note_id=note['note_id'], set_params={'last_random_time': to_int(time())})
 
@@ -268,10 +260,39 @@ class Quotes(TelegramManager):
                             "book": book,
                             "index": index,
                             "notes": notes}
-                await self.execute_command(user_x=user, message=message, chat=chat, initial_settings=settings)
+                await self.execute_command(user_x=user,
+                                           command=message.text,
+                                           message=message,
+                                           chat=chat,
+                                           initial_settings=settings)
 
             sleep(0.2)
         print(f"Sending daily book notes completed at {timestamp2date(time())}")
+
+    """ ###### CLOSING APP ##### """
+    def close(self):
+        self.__close_quote_timer()
+        self.__close_note_timer()
+        self.close_telegram_manager()
+
+    def __close_quote_timer(self):
+        try:
+            self.quote_timer.cancel()
+        except:
+            print('unable to close quote timer')
+            pass
+
+    def __close_note_timer(self):
+        try:
+            self.note_timer_eta_1.cancel()
+        except:
+            print('unable to close note timer eta 1')
+            pass
+        try:
+            self.note_timer_eta_2.cancel()
+        except:
+            print('unable to close note timer eta 2')
+            pass
 
 
 def main():

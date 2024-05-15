@@ -83,7 +83,7 @@ class QuotesFunction(Function):
         text = f"{book}{note['note']}\n\n{tags}{creation_data}{show_counter}"
         return text
 
-    def get_last_books(self, max_books: int = 4):  # TODO: move to QuoteFunction
+    def get_last_books(self, max_books: int = 4):
         notes = self.postgre_manager.get_notes()
         sorted_notes = sorted(notes, key=lambda d: d['created'], reverse=True)
 
@@ -95,7 +95,7 @@ class QuotesFunction(Function):
             books = books[:max_books]
         return books
 
-    def get_last_page(self, book: str = None) -> int:    # TODO: move to QuoteFunction
+    def get_last_page(self, book: str = None) -> int:
         notes = self.postgre_manager.get_notes()
         sorted_notes = sorted(notes, key=lambda d: d['created'], reverse=True)
 

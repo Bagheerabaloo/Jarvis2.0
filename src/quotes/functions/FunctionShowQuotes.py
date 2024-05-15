@@ -64,18 +64,18 @@ class FunctionShowQuote(QuotesFunction):
 
         keyboard = self.build_navigation_keyboard(index=index, len_=len(quotes_ids))
         params = {'quote_id': quotes_ids[index]['quote_id']}
-        quote = self.postgre_manager.find_quotes(params=params)[0]
+        quote = self.postgre_manager.get_quotes(params=params)[0]
         # quote = self.__find_quotes(params)[0]
 
         show_counter_header = f"_{str(index + 1)}/{str(len(quotes_ids))}_\n\n" if self.quotes_user.show_counter else ''
         quote_body = self.postgre_manager.get_quote_in_language(quote=quote, user=self.quotes_user)
-        quote_author = quote['author'].replace('_', ' ')
+        quote_author = quote.author.replace('_', ' ')
         text = f"{show_counter_header}{quote_body}\n\n_{quote_author}_"
 
-        if self.postgre_manager.is_favorite(quote_id=quote['quote_id'], telegram_id=self.quotes_user.telegram_id):
-            keyb = [['RemoveFavorite', 'addTranslation']] if self.quotes_user.super_user and quote['quote_ita'] is None else [['RemoveFavorite']]
+        if self.postgre_manager.is_favorite(quote_id=quote.quote_id, telegram_id=self.quotes_user.telegram_id):
+            keyb = [['RemoveFavorite', 'addTranslation']] if self.quotes_user.super_user and quote.quote_ita is None else [['RemoveFavorite']]
         else:
-            keyb = [['AddFavorite', 'addTranslation']] if self.quotes_user.super_user and quote['quote_ita'] is None else [['AddFavorite']]
+            keyb = [['AddFavorite', 'addTranslation']] if self.quotes_user.super_user and quote.quote_ita is None else [['AddFavorite']]
         if len(keyboard) > 0:
             keyb.append(keyboard)
 

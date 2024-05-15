@@ -133,7 +133,7 @@ class PostgreManager:
         query = self.__build_insert_into(table=table, attributes=attributes, values=values) if build else query
         return self.__execute_and_commit_query(query, values=values) if commit else self.__execute_query(query, values=values)
 
-    def update_query(self, query, values=None, commit=False):
+    def update_query(self, query, values=None, commit=False) -> bool:
         return self.__execute_and_commit_query(query, values=values) if commit else self.__execute_query(query)
 
     def delete_query(self, query, commit=False) -> bool:
