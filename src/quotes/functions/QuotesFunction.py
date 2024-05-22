@@ -7,6 +7,7 @@ from src.common.postgre.PostgreManager import PostgreManager
 from src.common.telegram.TelegramUser import TelegramUser
 from src.quotes.QuotesUser import QuotesUser
 from src.quotes.QuotesPostgreManager import QuotesPostgreManager
+from src.quotes.Note import Note
 
 
 @dataclass
@@ -66,43 +67,41 @@ class QuotesFunction(Function):
                           is_admin=False)
 
     def build_note(self,
-                   note: dict,
+                   note: Note,
                    index: int = 0,
                    user_x: QuotesUser = None,
                    show_counter: bool = False,
                    book_in_bold: bool = False):
         # book_markdown_1 = "_" if not book_in_bold else ""
         # book_markdown_2 = "" if not book_in_bold else "*"
-        pag = f" - pag. {note['pag']}" if 'pag' in note and note['pag'] else ""
-        book = f"*{note['book']}*{pag}\n\n" if 'book' in note and note['book'] else ""
-        joined_tags = '\n    • '.join(note['tags']) if 'tags' in note and len(note['tags']) > 0 else ''
-        tags = f"Tags:\n    _• {joined_tags}_\n\n" if 'tags' in note and len(note['tags']) > 0 else ""
-        creation_data = '_Creation date: {}_'.format(get_human_date_from_timestamp(note['created']))
+        pag = f" - pag. {note.pag}" if note.pag else ""
+        book = f"*{note.book}*{pag}\n\n" if note.book else ""
+        joined_tags = '\n    • '.join(note.tags) if len(note.tags) > 0 else ''
+        tags = f"Tags:\n    _• {joined_tags}_\n\n" if len(note.tags) > 0 else ""
+        creation_data = '_Creation date: {}_'.format(get_human_date_from_timestamp(note.created))
         show_counter = f"\n\n_{index + 1}/{len(self.telegram_function.settings['notes'])}_\n\n" if user_x.show_counter or show_counter else ''
 
-        text = f"{book}{note['note']}\n\n{tags}{creation_data}{show_counter}"
+        text = f"{book}{note.note}\n\n{tags}{creation_data}{show_counter}"
         return text
 
     def get_last_books(self, max_books: int = 4):
-        notes = self.postgre_manager.get_notes()
-        sorted_notes = sorted(notes, key=lambda d: d['created'], reverse=True)
+        sorted_notes = self.postgre_manager.get_notes(sorted_by_created=True)
 
         # books = list(set([x['book'] for x in sorted_notes if x['book']]))
         books = set()
         books_add = books.add
-        books = [x['book'] for x in sorted_notes if not (x['book'] in books or books_add(x['book'])) and x["book"]]
+        books = [x.book for x in sorted_notes if not (x.book in books or books_add(x.book)) and x.book]
         if len(books) > max_books:
             books = books[:max_books]
         return books
 
     def get_last_page(self, book: str = None) -> int:
-        notes = self.postgre_manager.get_notes()
-        sorted_notes = sorted(notes, key=lambda d: d['created'], reverse=True)
+        sorted_notes = self.postgre_manager.get_notes(sorted_by_created=True)
 
         if book:
-            sorted_notes = [x for x in sorted_notes if x['book'] == book]
+            sorted_notes = [x for x in sorted_notes if x.book == book]
             if len(sorted_notes) > 0:
-                pages = [int(x['pag']) for x in sorted_notes if x['pag']]
+                pages = [int(x.pag) for x in sorted_notes if x.pag]
                 return max(pages) if len(pages) > 0 else 1
             return 1
 

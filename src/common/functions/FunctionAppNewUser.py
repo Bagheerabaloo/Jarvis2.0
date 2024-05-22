@@ -50,7 +50,6 @@ class FunctionAppNewUser(Function):
         new_user: TelegramUser = self.telegram_function.settings["new_user"]
         new_chat: TelegramChat = self.telegram_function.settings["new_chat"]
         app: str = self.telegram_function.settings["app"]
-        # TODO: add corner case in which user is already present in telegram users DB but not in App user DB
         telegram_users = self.postgre_manager.get_telegram_users()
 
         # __ insert new telegram entries if they don't exist __

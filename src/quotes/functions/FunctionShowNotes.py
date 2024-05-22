@@ -6,6 +6,7 @@ from src.common.functions.Function import Function
 from src.common.postgre.PostgreManager import PostgreManager
 from src.quotes.QuotesUser import QuotesUser
 from src.quotes.functions.QuotesFunction import QuotesFunction
+from src.quotes.Note import Note
 
 
 @dataclass
@@ -20,12 +21,12 @@ class FunctionShowNotes(QuotesFunction):
             return self.close_function()
 
         self.telegram_function.settings["notes"] = self.postgre_manager.get_notes_with_tags()
-        notes = self.telegram_function.settings["notes"]
+        notes: List[Note] = self.telegram_function.settings["notes"]
 
         if len(notes) == 0:
             await self.send_message(chat_id=self.chat.chat_id, text="No matches in database")
         elif len(notes) == 1:
-            text = self.build_note(note=notes[0]['note'], index=0, user_x=self.quotes_user)
+            text = self.build_note(note=notes[0], index=0, user_x=self.quotes_user)
             await self.send_message(chat_id=self.chat.chat_id, text=text, parse_mode='Markdown')
         else:
             self.telegram_function.settings['index'] = 0
@@ -36,21 +37,14 @@ class FunctionShowNotes(QuotesFunction):
         return self.close_function()
 
     async def state_2(self):
-        notes = self.telegram_function.settings["notes"]
+        notes: List[Note] = self.telegram_function.settings["notes"]
         index = self.telegram_function.settings["index"]
         if self.telegram_function.previous_state == self.telegram_function.state:
             action = self.message.last_message()
-            if action == '<':
-                index -= 1
-            elif action == '>':
-                index += 1
-            elif action == '>>':
-                index = min(index + 10, len(notes) - 1)
-            elif action == '<<':
-                index = max(index - 10, 0)
+            index = self.get_new_index(index=index, action=action, len_notes=len(notes))
 
-        note_id = notes[index]['id']
-        note = self.postgre_manager.get_note_with_tags_by_id(note_id=note_id)
+        note_id = notes[index].note_id
+        note: Note = self.postgre_manager.get_note_with_tags_by_id(note_id=note_id)
 
         text = self.build_note(note=note, index=index, user_x=self.quotes_user)
         keyboard = self.build_navigation_keyboard(index=index, len_=len(notes))

@@ -2,10 +2,12 @@ from dataclasses import dataclass, field
 from random import choice, shuffle
 from typing import List, Type
 
+from src.common.tools.library import class_from_args, int_timestamp_now
 from src.common.functions.Function import Function
 from src.common.postgre.PostgreManager import PostgreManager
 from src.quotes.QuotesUser import QuotesUser
 from src.quotes.functions.QuotesFunction import QuotesFunction
+from src.quotes.Note import Note
 
 
 @dataclass
@@ -56,12 +58,19 @@ class FunctionNewNote(QuotesFunction):
             await self.state_1()
             return
 
-        self.postgre_manager.insert_one_note(note=self.telegram_function.settings['note'],
-                                             tags=self.telegram_function.settings['tags'],
-                                             book=self.telegram_function.settings['book'],
-                                             pag=int(self.telegram_function.settings['pag']),
-                                             user_id=self.quotes_user.telegram_id)
-        await self.send_message(chat_id=self.chat.chat_id, text='Note added', default_keyboard=True)
+        note = Note(note=self.telegram_function.settings['note'],
+                    tags=self.telegram_function.settings['tags'],
+                    is_book=self.telegram_function.settings['is_book'],
+                    book=self.telegram_function.settings['book'],
+                    pag=int(self.telegram_function.settings['pag']) if self.telegram_function.settings['pag'] else None,
+                    telegram_id=self.quotes_user.telegram_id,
+                    created=int_timestamp_now(),
+                    last_modified=int_timestamp_now())
+
+        if self.postgre_manager.insert_one_note(note=note, commit=True):
+            await self.send_message(chat_id=self.chat.chat_id, text='Note added', default_keyboard=True)
+        else:
+            await self.send_message(chat_id=self.chat.chat_id, text='A problem has incurred: note not added', default_keyboard=True)
         self.close_function()
 
     async def state_3(self):

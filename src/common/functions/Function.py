@@ -202,12 +202,30 @@ class Function(ABC):
     def build_navigation_keyboard(index, len_):
         keyboard = []
         if index > 0:
+            keyboard.append('|<')
             keyboard.append('<<')
             keyboard.append('<')
         if index < len_ - 1:
             keyboard.append('>')
             keyboard.append('>>')
+            keyboard.append('>|')
         return keyboard
+
+    @staticmethod
+    def get_new_index(index: int, action: str, len_notes: int) -> int:
+        if action == '<':
+            index -= 1
+        elif action == '<<':
+            index = max(index - 10, 0)
+        elif action == '|<':
+            index = 0
+        elif action == '>':
+            index += 1
+        elif action == '>>':
+            index = min(index + 10, len_notes - 1)
+        elif action == '>|':
+            index = len_notes - 1
+        return index
 
     async def state_1(self):
         pass

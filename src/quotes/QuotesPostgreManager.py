@@ -1,10 +1,12 @@
 import re
 from typing import List, Type, Optional
+from dataclasses import dataclass, field, asdict
 
 from src.common.tools.library import class_from_args, int_timestamp_now
 from src.common.postgre.PostgreManager import PostgreManager
 from src.quotes.QuotesUser import QuotesUser
 from src.quotes.Quote import Quote
+from src.quotes.Note import Note
 
 
 class QuotesPostgreManager(PostgreManager):
@@ -146,72 +148,73 @@ class QuotesPostgreManager(PostgreManager):
         return updated
 
     """ _____ DB: Notes Collection _____ """
-    def insert_one_note(self, note: str, user_id, book: str = None, pag: int = None, tags: List[str] = None, commit: bool = True):
-        if book:
-            if pag:
-                query = f"""
-                        INSERT INTO notes
-                        (note, telegram_id, private, created, last_modified, last_random_time, is_book, book, pag)
-                        VALUES
-                        ($${note}$$, {user_id}, {True}, {int_timestamp_now()}, {int_timestamp_now()}, {1}, {True}, $${book}$$, {pag})
-                        """
-            else:
-                query = f"""
-                        INSERT INTO notes
-                        (note, telegram_id, private, created, last_modified, last_random_time, is_book, book)
-                        VALUES
-                        ($${note}$$, {user_id}, {True}, {int_timestamp_now()}, {int_timestamp_now()}, {1}, {True}, $${book}$$)
-                        """
-        else:
-            query = f"""
-                    INSERT INTO notes
-                    (note, telegram_id, private, created, last_modified, last_random_time, is_book)
-                    VALUES
-                    ($${note}$$, {user_id}, {True}, {int_timestamp_now()}, {int_timestamp_now()}, {1}, {False})
-                    """
-        self.insert_query(query=query, commit=commit)
-
+    def insert_one_note(self, note: Note, commit: bool = True) -> bool:
+        params_to_insert = {k: v for k, v in asdict(note).items() if v is not None and k != 'tags'}
         query = f"""
-                SELECT note_id 
-                FROM notes 
-                WHERE note = $${note}$$
+                INSERT INTO notes
+                ({', '.join(params_to_insert.keys())})
+                VALUES
+                ({', '.join([f'$${str(params_to_insert[k])}$$' if type(params_to_insert[k]) == str else str(params_to_insert[k]) for k in params_to_insert])})
                 """
-        note_id = self.select_query(query=query)[0]['note_id']
+        if not self.insert_query(query=query, commit=False):
+            self.rollback()
+            return False
 
-        for tag in tags:
-            self.insert_tag(tag=tag, note_id=note_id, commit=commit)
+        note_id = self.get_note_id_by_note(note=note.note)
+        if not note_id:
+            self.rollback()
+            return False
 
-    def get_notes(self) -> List[dict]:  # TODO: create class Notes, Quotes etc.
+        success = True
+        for tag in note.tags:
+            success &= self.insert_tag(tag=tag, note_id=note_id, commit=False)
+        if not success:
+            self.rollback()
+            return False
+        if commit:
+            self.commit()
+        return True
+
+    def get_notes(self, sorted_by_created: bool = False) -> List[Note]:  # TODO: create class Notes, Quotes etc.
         query = f"""SELECT * from notes N"""
         notes = self.select_query(query=query)
-        return notes
+        if not notes:
+            return []
+        if sorted_by_created:
+            notes = sorted(notes, key=lambda d: d['created'], reverse=True)
+        return [class_from_args(Note, x) for x in notes]
 
-    def get_notes_with_tags(self) -> List[dict]:
+    def get_notes_with_tags(self, sorted_by_created: bool = False) -> List[Note]:
         query = f"""SELECT * 
                     FROM notes N 
                     LEFT JOIN (SELECT note_id AS id FROM notes) TEMP ON TEMP.id = N.note_id
                     LEFT JOIN tags T ON T.note_id = N.note_id"""
         results = self.select_query(query=query)
-
         if not results:
             return []
 
-        return self.__arrange_tags(results=results)
+        notes = self.__arrange_tags(results=results)
+        if sorted_by_created:
+            notes = sorted(notes, key=lambda d: d['created'], reverse=True)
+        return [class_from_args(Note, x) for x in notes]
 
-    def get_notes_with_tags_by_book(self, book: str) -> List[dict]:
-        query = f"""SELECT * 
-                    FROM notes N 
-                    LEFT JOIN (SELECT note_id AS id FROM notes) TEMP ON TEMP.id = N.note_id
-                    LEFT JOIN tags T ON T.note_id = N.note_id
-                    WHERE N.book = $${book}$$
-                    ORDER BY N.pag, N.created
-                    """
+    def get_notes_with_tags_by_book(self, book: str, sorted_by_created: bool = False) -> List[Note]:  # TODO: use function get_notes_with_tags passing WHERE condition
+        query = f"""
+                SELECT * 
+                FROM notes N 
+                LEFT JOIN (SELECT note_id AS id FROM notes) TEMP ON TEMP.id = N.note_id
+                LEFT JOIN tags T ON T.note_id = N.note_id
+                WHERE N.book = $${book}$$
+                ORDER BY N.pag, N.created
+                """
         results = self.select_query(query=query)
-
         if not results:
             return []
 
-        return self.__arrange_tags(results=results)
+        notes = self.__arrange_tags(results=results)
+        if sorted_by_created:
+            notes = sorted(notes, key=lambda d: d['created'], reverse=True)
+        return [class_from_args(Note, x) for x in notes]
 
     @staticmethod
     def __arrange_tags(results: List[dict]) -> List[dict]:
@@ -222,22 +225,33 @@ class QuotesPostgreManager(PostgreManager):
             temp_notes = [x for x in results if x['id'] == note_id]
             note = {key: temp_notes[0][key] for key in temp_notes[0] if key not in ['tag_id', 'tag', 'quote_id', 'note_id']}
             note.update({'tags': [x['tag'] for x in temp_notes if x["tag"]]})
+            note['note_id'] = note.pop('id')
             notes.append(note)
 
         return notes
 
-    def get_note_with_tags_by_id(self, note_id: int) -> Optional[dict]:
+    def get_note_id_by_note(self, note: str) -> Optional[str]:
+        query = f"""
+                SELECT note_id 
+                FROM notes 
+                WHERE note = $${note}$$
+                """
+        note_id = self.select_query(query=query)
+        if not note_id:
+            return None
+        return note_id[0]['note_id']
+
+    def get_note_with_tags_by_id(self, note_id: int) -> Optional[Note]:
         query = f"""SELECT * from notes N left join tags T on T.note_id = N.note_id where N.note_id = {note_id}"""
         results = self.select_query(query=query)
-
         if not results:
             return None
 
         note = {key: results[0][key] for key in results[0] if key not in ['tag_id', 'tag', 'note_id']}
         note.update({'tags': [x['tag'] for x in results if x['tag']]})
-        return note
+        return class_from_args(Note, note)
 
-    def update_note_by_note_id(self, note_id, set_params):  # TODO: unify with update_quote_by_quote_id
+    def update_note_by_note_id(self, note_id: int, set_params: dict) -> bool:  # TODO: unify with update_quote_by_quote_id
         set_params = ','.join([key + f" = '{set_params[key]}'" if type(set_params[key]) is str else key + f" = {set_params[key]}" for key in set_params])
 
         query = f"""
@@ -250,7 +264,32 @@ class QuotesPostgreManager(PostgreManager):
             self.logger.warning('Note id {} edited: '.format(note_id))
         return updated
 
-    """ ______ DB: Tags Collection _____ """
+    def get_daily_notes(self) -> List[Note]:
+        query = """
+                (
+                SELECT *
+                FROM notes
+                WHERE is_book = TRUE
+                AND last_random_time = 1
+                ORDER BY RANDOM()
+                LIMIT 100
+                )
+                UNION
+                (
+                SELECT *
+                FROM notes
+                WHERE is_book = TRUE
+                AND last_random_time > 1
+                ORDER BY last_random_time
+                LIMIT 100
+                )
+                """
+        notes = self.select_query(query=query)
+        if not notes:
+            return []
+        return [class_from_args(Note, x) for x in notes]
+
+    """ ______ DB: Tags Collection _____ """    # TODO: make Tag object
     def insert_tag(self, tag: str, quote_id: int = None, note_id: str = None, commit: bool = True) -> bool:
         if not quote_id and not note_id:
             return False
@@ -265,11 +304,10 @@ class QuotesPostgreManager(PostgreManager):
         return self.insert_query(query=query, commit=commit)
 
     def get_last_tags(self, max_tags: int = 9) -> List[str]:
-        notes = self.get_notes_with_tags()
-        sorted_notes = sorted(notes, key=lambda d: d['created'], reverse=True)
+        sorted_notes = self.get_notes_with_tags()
         tags = []
         for note in sorted_notes:
-            tags += note['tags']
+            tags += note.tags
         set_tags = []
         for tag in tags:
             if tag not in set_tags:

@@ -113,7 +113,7 @@ class PostgreManager:
         self.rollback()
         return False
 
-    def select_query(self, query, table_show=False, dict_output=True):
+    def select_query(self, query, table_show=False, dict_output=True) -> Optional[List[dict]]:
         if self.__execute_query(query):
             records = self.cursor.fetchall()
 
@@ -123,10 +123,8 @@ class PostgreManager:
 
             if dict_output:
                 columns = [x.name for x in self.cursor.description]
-                records = [{columns[i]:record[i] for i in range(len(columns))} for record in records]
-
+                records = [{columns[i]: record[i] for i in range(len(columns))} for record in records]
             return records
-
         return None
 
     def insert_query(self, query=None, table=None, attributes=None, values=None, build=False, commit=False) -> bool:

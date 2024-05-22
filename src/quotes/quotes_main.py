@@ -37,6 +37,7 @@ from src.common.postgre.PostgreManager import PostgreManager
 from src.common.tools.library import run_main, get_environ, int_timestamp_now, class_from_args, to_int, timestamp2date, build_eta
 from src.quotes.QuotesUser import QuotesUser
 from src.quotes.QuotesPostgreManager import QuotesPostgreManager
+from src.quotes.Note import Note
 
 # __ logging __
 import logging
@@ -202,7 +203,7 @@ class Quotes(TelegramManager):
     def __init_book_timer(self):
         eta_1 = build_eta(target_hour=12, target_minute=00)
         eta_2 = build_eta(target_hour=18, target_minute=00)
-        # eta_2 = 20
+        eta_2 = 20
 
         print('Next Note 1 set in ' + str(to_int(eta_1/3600)) + 'h:' + str(to_int((eta_1 % 3600)/60)) + 'm:' + str(to_int(((eta_1 % 3600) % 60))) + 's:')
         print('Next Note 2 set in ' + str(to_int(eta_2/3600)) + 'h:' + str(to_int((eta_2 % 3600)/60)) + 'm:' + str(to_int(((eta_2 % 3600) % 60))) + 's:')
@@ -219,34 +220,15 @@ class Quotes(TelegramManager):
         asyncio.run(self.__daily_book())
 
     async def __daily_book(self):
-        query = """
-                (
-                SELECT *
-                FROM notes
-                WHERE is_book = TRUE
-                AND last_random_time = 1
-                ORDER BY RANDOM()
-                LIMIT 100
-                )
-                UNION
-                (
-                SELECT *
-                FROM notes
-                WHERE is_book = TRUE
-                AND last_random_time > 1
-                ORDER BY last_random_time
-                LIMIT 100
-                )
-                """  # TODO: move to QuotesPostgreManager and change note_id into id
-        notes = self.postgre_manager.select_query(query=query)
+        notes = self.postgre_manager.get_daily_notes()
         if len(notes) == 0:
             return None
 
         note = choice(notes)
-        book = note["book"]
-        notes = self.postgre_manager.get_notes_with_tags_by_book(book=book)
-        index = next((index for (index, d) in enumerate(notes) if d["id"] == note["note_id"]), None)
-        self.postgre_manager.update_note_by_note_id(note_id=note['note_id'], set_params={'last_random_time': to_int(time())})
+        book = note.book
+        notes: List[Note] = self.postgre_manager.get_notes_with_tags_by_book(book=book)
+        index = next((index for (index, d) in enumerate(notes) if d.note_id == note.note_id), None)
+        self.postgre_manager.update_note_by_note_id(note_id=note.note_id, set_params={'last_random_time': to_int(time())})
 
         print(f"Start sending daily book notes at {timestamp2date(time())}")
         for user in self.quotes_users:
@@ -256,8 +238,8 @@ class Quotes(TelegramManager):
                     continue
                 chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
                 message = self._build_new_telegram_message(chat=chat, text='dailyBook')
-                settings = {"note": note,
-                            "book": book,
+                settings = {"note": note.note,
+                            "book": note.book,
                             "index": index,
                             "notes": notes}
                 await self.execute_command(user_x=user,
