@@ -30,10 +30,10 @@ class FunctionQuotesSettings(QuotesFunction):
         txt = f"Current parameters set:\n    {settings_text}\n\nSelect parameter to edit"
         parameters = [settings[key]['short_descr'] for key in settings]
         keyboard = self.square_keyboard(parameters)
-        if self.telegram_function.previous_state > self.telegram_function.state:  # TODO: make this if a function
-            await self.edit_message(chat_id=self.chat.chat_id, text=txt, parse_mode="Markdown", inline_keyboard=keyboard)
-        else:
-            await self.send_message(chat_id=self.chat.chat_id, text=txt, parse_mode="Markdown", inline_keyboard=keyboard)
+        await self.edit_message(chat_id=self.chat.chat_id,
+                                text=txt,
+                                parse_mode="Markdown",
+                                inline_keyboard=keyboard)
 
         self.telegram_function.settings["settings"] = settings
         self.telegram_function.settings["accepted_parameters"] = parameters

@@ -55,6 +55,13 @@ class TelegramManager:
         return self.users
 
     def start(self):
+        # __ delete old telegram functions from db __
+        self.postgre_manager.delete_old_telegram_functions()
+
+        # __ restore telegram functions from db__
+        for chat in self.chats:
+            chat.running_functions = self.postgre_manager.get_telegram_functions(chat_id=chat.chat_id)
+
         # __ start telegram polling thread __
         self.start_polling_thread() if self.receive_messages else None
 
@@ -64,7 +71,24 @@ class TelegramManager:
     """ ########### Close ############ """
     def close_telegram_manager(self):
         self.run = False
+        self.save()
         self.postgre_manager.close_connection()
+
+    def save(self) -> bool:
+        success = True
+        telegram_functions_ids = self.postgre_manager.get_telegram_functions_ids()
+        for chat in self.chats:
+            for telegram_function in chat.running_functions:
+                if telegram_function.id in telegram_functions_ids:
+                    # TODO: update only if update_id has changed
+                    success &= self.postgre_manager.update_telegram_function(
+                        telegram_function=telegram_function,
+                        commit=True)
+                else:
+                    success &= self.postgre_manager.insert_telegram_function(
+                        telegram_function=telegram_function,
+                        chat_id=chat.chat_id, commit=True)
+        return success
 
     def close(self):
         self.close_telegram_manager()
@@ -335,7 +359,7 @@ class TelegramManager:
                                chat_id=chat.chat_id,
                                message_id=message_id,
                                date=int_timestamp_now(),
-                               update_id=0,
+                               update_id=int_timestamp_now(),
                                from_id=chat.chat_id,
                                from_name=chat.first_name,
                                from_username=chat.username,

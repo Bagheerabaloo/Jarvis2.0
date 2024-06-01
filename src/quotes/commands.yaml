@@ -1,0 +1,49 @@
+commands:
+  - alias: ["back"]
+    admin: false
+    function: "FunctionBack"
+  - alias: ["help"]
+    admin: false
+    function: "FunctionHelp"
+  - alias: ["ciao", "hello"]
+    admin: true
+    function: "FunctionCiao"
+  - alias: ["callback"]
+    admin: true
+    function: "FunctionCallback"
+  - alias: ["process"]
+    admin: true
+    function: "FunctionProcess"
+  - alias: ["start"]
+    admin: false
+    function: "FunctionStart"
+  - alias: ["quote"]
+    admin: false
+    function: "FunctionRandomQuote"
+  - alias: ["showQuotes"]
+    admin: false
+    function: "FunctionShowQuotes"
+  - alias: ["newQuote"]
+    admin: true
+    function: "FunctionNewQuote"
+  - alias: ["note"]
+    admin: true
+    function: "FunctionNewNote"
+  - alias: ["showNotes"]
+    admin: false
+    function: "FunctionShowNotes"
+  - alias: ["settings"]
+    admin: false
+    function: "FunctionQuotesSettings"
+  - alias: ["appNewUser"]
+    admin: true
+    function: "FunctionQuotesNewUser"
+    restricted: true
+  - alias: ["dailyQuote"]
+    admin: false
+    function: "FunctionDailyQuote"
+    restricted: true
+  - alias: ["dailyBook"]
+    admin: false
+    function: "FunctionDailyBook"
+    restricted: true

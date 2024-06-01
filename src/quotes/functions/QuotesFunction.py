@@ -76,7 +76,7 @@ class QuotesFunction(Function):
         # book_markdown_2 = "" if not book_in_bold else "*"
         pag = f" - pag. {note.pag}" if note.pag else ""
         book = f"*{note.book}*{pag}\n\n" if note.book else ""
-        joined_tags = '\n    • '.join(note.tags) if len(note.tags) > 0 else ''
+        joined_tags = '\n    • '.join(note.get_list_tags()) if len(note.tags) > 0 else ''
         tags = f"Tags:\n    _• {joined_tags}_\n\n" if len(note.tags) > 0 else ""
         creation_data = '_Creation date: {}_'.format(get_human_date_from_timestamp(note.created))
         show_counter = f"\n\n_{index + 1}/{len(self.telegram_function.settings['notes'])}_\n\n" if user_x.show_counter or show_counter else ''

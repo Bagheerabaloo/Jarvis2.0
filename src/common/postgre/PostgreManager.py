@@ -1,16 +1,29 @@
 import re
 import psycopg2
+import json
 # from tabulate import tabulate
+from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 from src.common.tools.logging_class import LoggerObj
-from src.common.tools.library import get_exception, print_exception, int_timestamp_now
+from src.common.tools.library import get_exception, print_exception, int_timestamp_now, class_from_args
 from src.common.telegram.TelegramUser import TelegramUser
 from src.common.telegram.TelegramPendingUser import TelegramPendingUser
 from src.common.telegram.TelegramChat import TelegramChat
+from src.common.telegram.TelegramFunction import TelegramFunction
 
 
+@dataclass
 class PostgreManager:
-    # TODO: add protection against insert/update/delete
+    TYPE_NAME_TO_CLASS = {}
+
+    db_url: str
+    name: str = "PostgreManager"
+    caller: str = ""
+
+    insert_permission: bool = True
+    update_permission: bool = True
+    delete_permission: bool = False
+
     @staticmethod
     def __build_insert_into(table, attributes, values):
         query = 'INSERT INTO ' + table + ' ('
@@ -20,13 +33,12 @@ class PostgreManager:
         query += ');'
         return query
 
-    def __init__(self, db_url, caller="", ext_logger=None, logger_level="DEBUG", logging_queue=None):
-        self.name = '{}PostgreManager'.format(caller)
-        self.caller = caller
-        self.db_url = db_url
-
+    def __post_init__(self):
         # __ init logging __
-        self.logger = self.__init_logger(logger_level, logging_queue) if not ext_logger else ext_logger
+        ext_logger = None
+        logger_level = "DEBUG"
+        logging_queue_ = None
+        self.logger = self.__init_logger(logger_level, logging_queue_) if not ext_logger else ext_logger
 
     # __ Logger __
     def __init_logger(self, logger_level, logging_queue):
@@ -85,7 +97,18 @@ class PostgreManager:
         self.cursor.execute("select relname from pg_class where relkind='r' and relname !~ '^(pg_|sql_)';")
         return self.cursor.fetchall()
 
-    # TODO: Add get_total_number_of_rows
+    def get_total_number_of_rows_for_all_tables(self) -> int:
+        tables = self.get_tables()
+        total_rows = 0
+        for table in tables:
+            table_name = table[0]
+            query = f"SELECT COUNT(*) FROM {table_name}"
+            results = self.select_query(query)
+            if not results:
+                self.logger.warning(f"No results for table {table_name}")
+                continue
+            total_rows += results[0]['count']
+        return total_rows
 
     def commit(self):
         self.connection.commit()
@@ -128,13 +151,22 @@ class PostgreManager:
         return None
 
     def insert_query(self, query=None, table=None, attributes=None, values=None, build=False, commit=False) -> bool:
+        if not self.insert_permission:
+            self.logger.warning("No INSERT permission for this DB")
+            return False
         query = self.__build_insert_into(table=table, attributes=attributes, values=values) if build else query
         return self.__execute_and_commit_query(query, values=values) if commit else self.__execute_query(query, values=values)
 
     def update_query(self, query, values=None, commit=False) -> bool:
+        if not self.update_permission:
+            self.logger.warning("No UPDATE permission for this DB")
+            return False
         return self.__execute_and_commit_query(query, values=values) if commit else self.__execute_query(query)
 
     def delete_query(self, query, commit=False) -> bool:
+        if not self.delete_permission:
+            self.logger.warning("No DELETE permission for this DB")
+            return False
         return self.__execute_and_commit_query(query) if commit else self.__execute_query(query)
 
     def create_query(self, query, commit=False):
@@ -234,6 +266,133 @@ class PostgreManager:
                  """
         return self.update_query(query=query, commit=commit)
 
+    """ ##### Telegram Functions ##### """
+    def insert_telegram_function(self,
+                                 telegram_function: TelegramFunction,
+                                 chat_id: int,
+                                 commit: bool = True) -> bool:
+        query = f"""INSERT INTO telegram_functions
+                    (id, 
+                    chat_id, 
+                    name, 
+                    timestamp, 
+                    update_id, 
+                    last_message_id, 
+                    previous_state, 
+                    state, 
+                    is_open_for_message, 
+                    has_inline_keyboard, 
+                    callback_message_id, 
+                    settings)
+                    VALUES
+                    ({telegram_function.id}, 
+                    {chat_id}, 
+                    $${telegram_function.name}$$, 
+                    {telegram_function.timestamp}, 
+                    {telegram_function.update_id}, 
+                    {telegram_function.last_message_id}, 
+                    {telegram_function.previous_state},
+                    {telegram_function.state}, 
+                    {telegram_function.is_open_for_message}, 
+                    {telegram_function.has_inline_keyboard},
+                    {telegram_function.callback_message_id}, 
+                    $${json.dumps(telegram_function.to_dict()['settings'])}$$)"""
+        return self.insert_query(query=query, commit=commit)
+
+    def update_telegram_function(self, telegram_function: TelegramFunction, commit: bool = True) -> bool:
+        query = f"""UPDATE telegram_functions
+                    SET update_id = {telegram_function.update_id}, 
+                    last_message_id = {telegram_function.last_message_id},
+                    previous_state = {telegram_function.previous_state}, 
+                    state = {telegram_function.state},
+                    is_open_for_message = {telegram_function.is_open_for_message}, 
+                    has_inline_keyboard = {telegram_function.has_inline_keyboard},
+                    callback_message_id = {telegram_function.callback_message_id}, 
+                    settings = $${json.dumps(telegram_function.to_dict()['settings'])}$$
+                    WHERE id = {telegram_function.id}
+                    """
+        return self.update_query(query=query, commit=commit)
+
+    def delete_old_telegram_functions(self, commit: bool = True) -> bool:
+        older_one_hour_telegram_function_ids = self.get_older_than_one_hour_telegram_function_ids()
+        older_one_week_telegram_function_ids = self.get_older_than_one_week_telegram_function_ids()
+        latest_telegram_function_ids = self.get_latest_telegram_function_ids(max_number=10)
+        # TODO: set the max_number in global variable
+        telegram_function_ids_to_delete = [x for x in older_one_hour_telegram_function_ids
+                                           if x not in latest_telegram_function_ids
+                                           and x not in older_one_week_telegram_function_ids]
+        if len(telegram_function_ids_to_delete) == 0:
+            return True
+        return self.delete_telegram_function(telegram_function_ids=telegram_function_ids_to_delete, commit=commit)
+
+    def delete_telegram_function(self, telegram_function_ids: List[int], commit: bool = True) -> bool:
+        query = f"""
+                DELETE FROM telegram_functions
+                WHERE id IN ({','.join([str(x) for x in telegram_function_ids])})
+                """
+        return self.delete_query(query=query, commit=commit)
+
+    def get_telegram_functions(self, chat_id: int) -> List[TelegramFunction]:
+        query = f"""
+                SELECT * 
+                FROM telegram_functions 
+                WHERE chat_id = {chat_id}
+                """
+        telegram_functions = self.select_query(query)
+        if not telegram_functions or len(telegram_functions) == 0:
+            return []
+        return [self.telegram_function_from_dict(x) for x in telegram_functions]
+
+    def get_telegram_functions_ids(self) -> List[int]:
+        telegram_functions = self.select_query("SELECT id FROM telegram_functions")
+        if not telegram_functions or len(telegram_functions) == 0:
+            return []
+        return [x["id"] for x in telegram_functions]
+
+    def get_latest_telegram_function_ids(self, max_number: int) -> List[int]:
+        query = f"""
+                SELECT id 
+                FROM telegram_functions 
+                ORDER BY timestamp DESC 
+                LIMIT {max_number}
+                """
+
+        telegram_functions = self.select_query(query)
+        if not telegram_functions or len(telegram_functions) == 0:
+            return []
+        return [x["id"] for x in telegram_functions]
+
+    def get_older_than_one_hour_telegram_function_ids(self) -> List[int]:
+        query = f"""
+        SELECT id 
+        FROM telegram_functions
+        WHERE timestamp < {int_timestamp_now() - 3600}
+        """
+        telegram_functions = self.select_query(query)
+        if not telegram_functions or len(telegram_functions) == 0:
+            return []
+        return [x["id"] for x in telegram_functions]
+
+    def get_older_than_one_week_telegram_function_ids(self) -> List[int]:
+        query = f"""
+        SELECT id 
+        FROM telegram_functions
+        WHERE timestamp < {int_timestamp_now() - 604800}
+        """
+        telegram_functions = self.select_query(query)
+        if not telegram_functions or len(telegram_functions) == 0:
+            return []
+        return [x["id"] for x in telegram_functions]
+
+    def telegram_function_from_dict(self, data) -> TelegramFunction:
+        data['settings'] = json.loads(data['settings'], object_hook=self.custom_deserializer)
+        data.pop('chat_id', None)
+        return TelegramFunction(**data)
+
+    @ staticmethod
+    def custom_deserializer(dct) -> object:
+        return dct
+
 
 if __name__ == '__main__':
     from src.common.file_manager.FileManager import FileManager
@@ -250,10 +409,14 @@ if __name__ == '__main__':
     config_manager = FileManager(caller=name, logging_queue=logging_queue)
 
     # __ init postgre manager __
-    postgre_manager = PostgreManager(db_url=config_manager.get_postgre_url(database_key=postgre_key_var), caller='Example', logging_queue=Queue())
+    postgre_manager = PostgreManager(db_url=config_manager.get_postgre_url(database_key=postgre_key_var),
+                                     caller='Example',
+                                     logging_queue=Queue())
     postgre_manager.connect(sslmode=sslmode_)
 
     print(postgre_manager.get_tables())
+
+    print(f"Total rows: {postgre_manager.get_total_number_of_rows_for_all_tables()}")
 
     query_ = "select * from notes limit 10"
     print(postgre_manager.select_query(query_))

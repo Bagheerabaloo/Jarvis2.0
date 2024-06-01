@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from src.common.telegram.TelegramFunction import TelegramFunction
 
 
@@ -16,6 +16,17 @@ class TelegramUser:
 
     last_chat_id: int = None
     # self.last_message_id = None
+
+    def to_dict(self):
+        result = asdict(self)
+        for key, value in result.items():
+            if hasattr(value, 'to_dict'):
+                result[key] = value.to_dict()
+        return result
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
 
     def check_auth(self, strict=False):  # TODO: add function id
         return (self.auth and not strict) or self.auth_function

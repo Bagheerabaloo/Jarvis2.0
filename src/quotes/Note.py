@@ -1,9 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import List, Type, Optional
+from src.quotes.Tag import Tag
 
 
 @dataclass
 class Note:
+    TYPE_NAME = 'Note'
+
     note: str
     telegram_id: int
     note_id: int = None
@@ -19,4 +22,19 @@ class Note:
     paragraph: str = None
     created: int = None
     last_modified: int = None
-    tags: List[str] = field(default_factory=lambda: [])
+    tags: List[Tag] = field(default_factory=lambda: [])
+
+    def to_dict(self):
+        result = asdict(self)
+        for key, value in result.items():
+            if hasattr(value, 'to_dict'):
+                result[key] = value.to_dict()
+        return result
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
+
+    def get_list_tags(self) -> List[str]:
+        return [x.tag for x in self.tags]
+

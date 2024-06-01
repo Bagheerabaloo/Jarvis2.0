@@ -138,8 +138,19 @@ class Function(ABC):
         # return True if success else False
 
     async def edit_message(self, chat_id: int, text: str, inline_keyboard: list = None, parse_mode=None):
-        # if inline_keyboard:
-        response = await self.bot.edit_message(message_id=self.telegram_function.callback_message_id, chat_id=chat_id, text=text, reply_markup=inline_keyboard, parse_mode=parse_mode)
+        if not self.telegram_function.callback_message_id:
+            return await self.send_message(chat_id=chat_id,
+                                           text=text,
+                                           inline_keyboard=inline_keyboard,
+                                           parse_mode=parse_mode)
+
+        # TODO: handle case in which message is the same as the previous one
+
+        response = await self.bot.edit_message(message_id=self.telegram_function.callback_message_id,
+                                               chat_id=chat_id,
+                                               text=text,
+                                               reply_markup=inline_keyboard,
+                                               parse_mode=parse_mode)
         self.telegram_function.is_open_for_message = False
         self.telegram_function.has_inline_keyboard = True
         self.telegram_function.callback_message_id = response['message_id']
@@ -213,19 +224,21 @@ class Function(ABC):
 
     @staticmethod
     def get_new_index(index: int, action: str, len_notes: int) -> int:
-        if action == '<':
-            index -= 1
-        elif action == '<<':
-            index = max(index - 10, 0)
-        elif action == '|<':
-            index = 0
-        elif action == '>':
-            index += 1
-        elif action == '>>':
-            index = min(index + 10, len_notes - 1)
-        elif action == '>|':
-            index = len_notes - 1
-        return index
+        match action:
+            case '<':
+                return index - 1
+            case '<<':
+                return max(index - max(int(len_notes/10), 1), 0)
+            case '|<':
+                return 0
+            case '>':
+                return index + 1
+            case '>>':
+                return min(index + max(int(len_notes/10), 1), len_notes - 1)
+            case '>|':
+                return len_notes - 1
+            case _:
+                raise ValueError("Invalid action")
 
     async def state_1(self):
         pass

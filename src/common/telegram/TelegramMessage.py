@@ -1,7 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from src.common.telegram.TelegramMessageType import TelegramMessageType
 
 
+# TODO: move to sqlAlchemy
 @dataclass
 class TelegramMessage:
     message_type: TelegramMessageType
@@ -17,6 +18,17 @@ class TelegramMessage:
     text: str = None
     callback_id: int = None
     data: str = None
+
+    def to_dict(self):
+        result = asdict(self)
+        for key, value in result.items():
+            if hasattr(value, 'to_dict'):
+                result[key] = value.to_dict()
+        return result
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
 
     def get_from(self):
         return {k: v for k, v in self.__dict__.items() if k.startswith('from')}

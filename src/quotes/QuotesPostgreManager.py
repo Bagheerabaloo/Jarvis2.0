@@ -1,15 +1,19 @@
 import re
 from typing import List, Type, Optional
 from dataclasses import dataclass, field, asdict
+from collections import OrderedDict
 
 from src.common.tools.library import class_from_args, int_timestamp_now
 from src.common.postgre.PostgreManager import PostgreManager
 from src.quotes.QuotesUser import QuotesUser
 from src.quotes.Quote import Quote
 from src.quotes.Note import Note
+from src.quotes.Tag import Tag
 
 
 class QuotesPostgreManager(PostgreManager):
+    TYPE_NAME_TO_CLASS = {Note.TYPE_NAME: Note.from_dict,
+                          }
 
     """ ____ DB: Users Collection _____"""
     @staticmethod
@@ -37,7 +41,10 @@ class QuotesPostgreManager(PostgreManager):
             telegram_admin_user = self.get_telegram_admin_user()
             if not telegram_admin_user:
                 return []
-            new_quote_user = QuotesUser(telegram_id=telegram_admin_user.telegram_id, name=telegram_admin_user.name, username=telegram_admin_user.username, is_admin=telegram_admin_user.is_admin)
+            new_quote_user = QuotesUser(telegram_id=telegram_admin_user.telegram_id,
+                                        name=telegram_admin_user.name,
+                                        username=telegram_admin_user.username,
+                                        is_admin=telegram_admin_user.is_admin)
             self.add_quotes_user_to_db(new_quote_user)
             return [new_quote_user]
         return [class_from_args(QuotesUser, x) for x in quotes_users]
@@ -62,8 +69,15 @@ class QuotesPostgreManager(PostgreManager):
         return self.update_query(query, commit=commit)
 
     """ ____ DB: Quotes Collection _____"""
-    def get_quotes(self, params: dict) -> List[Quote]:
-        params = ' AND '.join([key + f" = '{params[key]}'" if type(params[key]) is str else key + f" = {params[key]}" for key in params])
+    def get_all_quotes(self) -> List[Quote]:
+        quotes = self.select_query("SELECT * FROM quotes")
+        if not quotes:
+            return []
+        return [class_from_args(Quote, x) for x in quotes] if quotes else []
+
+    def get_quotes_by_params(self, params: dict) -> List[Quote]:
+        params = ' AND '.join([key + f" = '{params[key]}'" if type(params[key]) is str else key + f" = {params[key]}"
+                               for key in params])
         quotes = self.select_query(f"SELECT * FROM quotes WHERE {params}")
         return [class_from_args(Quote, x) for x in quotes] if quotes else []
 
@@ -88,13 +102,17 @@ class QuotesPostgreManager(PostgreManager):
         if not results:
             return []
 
+        # TODO: unify this section with self.__arrange_tags
         quotes_id = list(set([x['id'] for x in results]))
 
         quotes = []
         for quote_id in quotes_id:
             temp_quotes = [x for x in results if x['id'] == quote_id]
-            quote = {key: temp_quotes[0][key] for key in temp_quotes[0] if key not in ['tag_id', 'tag', 'note_id', 'quote_id']}
-            quote.update({'tags': [x['tag'] for x in temp_quotes if x["tag"]]})
+            quote = {key: temp_quotes[0][key]
+                     for key in temp_quotes[0] if key not in ['tag_id', 'tag', 'note_id', 'quote_id']}
+            quote.update({'tags': [class_from_args(Tag, {"tag": x['tag'], "quote_id": quote_id})
+                                   for x in temp_quotes if x["tag"]]
+                          })
             quote['quote_id'] = quote.pop('id')
             quotes.append(quote)
 
@@ -113,7 +131,9 @@ class QuotesPostgreManager(PostgreManager):
                 INSERT INTO quotes
                 (quote, author, translation, quote_ita, last_random_tme, telegram_id, private, created, last_modified)
                 VALUES
-                ($${quote.quote}$$, $${quote.author}$$, $${quote.translation}$$, $${quote.quote_ita}$$, {int_timestamp_now()}, {quote.telegram_id}, {quote.private}, {int_timestamp_now()}, {int_timestamp_now()})
+                ($${quote.quote}$$, $${quote.author}$$, $${quote.translation}$$, $${quote.quote_ita}$$, 
+                {int_timestamp_now()}, {quote.telegram_id}, {quote.private}, 
+                {int_timestamp_now()}, {int_timestamp_now()})
                 """
         if not self.insert_query(query=query, commit=False):
             self.rollback()
@@ -123,10 +143,10 @@ class QuotesPostgreManager(PostgreManager):
                 self.commit()
             return True
 
-        quotes = self.get_quotes({'quote': quote, 'author': 'author'})
+        quotes = self.get_quotes_by_params({'quote': quote.quote, 'author': quote.author})
         success: bool = True
         for tag in quote.tags:
-            success &= self.insert_tag(tag=tag, quote_id=quotes[0].quote_id, commit=False)
+            success &= self.insert_tag(tag=tag, commit=False)
         if not success:
             self.rollback()
             return False
@@ -135,7 +155,8 @@ class QuotesPostgreManager(PostgreManager):
         return True
 
     def update_quote_by_quote_id(self, quote_id: int, set_params: dict) -> bool:
-        set_params = ','.join([key + f" = '{set_params[key]}'" if type(set_params[key]) is str else key + f" = {set_params[key]}" for key in set_params])
+        set_params = ','.join([key + f" = '{set_params[key]}'" if type(set_params[key]) is str else key + f" = {set_params[key]}"
+                               for key in set_params])
 
         query = f"""
                  UPDATE quotes
@@ -154,7 +175,8 @@ class QuotesPostgreManager(PostgreManager):
                 INSERT INTO notes
                 ({', '.join(params_to_insert.keys())})
                 VALUES
-                ({', '.join([f'$${str(params_to_insert[k])}$$' if type(params_to_insert[k]) == str else str(params_to_insert[k]) for k in params_to_insert])})
+                ({', '.join([f'$${str(params_to_insert[k])}$$' if type(params_to_insert[k]) == str else str(params_to_insert[k])
+                             for k in params_to_insert])})
                 """
         if not self.insert_query(query=query, commit=False):
             self.rollback()
@@ -167,7 +189,7 @@ class QuotesPostgreManager(PostgreManager):
 
         success = True
         for tag in note.tags:
-            success &= self.insert_tag(tag=tag, note_id=note_id, commit=False)
+            success &= self.insert_tag(tag=tag, commit=False)
         if not success:
             self.rollback()
             return False
@@ -175,7 +197,7 @@ class QuotesPostgreManager(PostgreManager):
             self.commit()
         return True
 
-    def get_notes(self, sorted_by_created: bool = False) -> List[Note]:  # TODO: create class Notes, Quotes etc.
+    def get_notes(self, sorted_by_created: bool = False) -> List[Note]:
         query = f"""SELECT * from notes N"""
         notes = self.select_query(query=query)
         if not notes:
@@ -198,7 +220,8 @@ class QuotesPostgreManager(PostgreManager):
             notes = sorted(notes, key=lambda d: d['created'], reverse=True)
         return [class_from_args(Note, x) for x in notes]
 
-    def get_notes_with_tags_by_book(self, book: str, sorted_by_created: bool = False) -> List[Note]:  # TODO: use function get_notes_with_tags passing WHERE condition
+    def get_notes_with_tags_by_book(self, book: str, sorted_by_created: bool = False) -> List[Note]:
+        # TODO: use function get_notes_with_tags passing WHERE condition
         query = f"""
                 SELECT * 
                 FROM notes N 
@@ -211,9 +234,9 @@ class QuotesPostgreManager(PostgreManager):
         if not results:
             return []
 
-        notes = self.__arrange_tags(results=results)
+        notes = self.__arrange_tags(results=results)  # TODO: this function breaks the order of the notes
         if sorted_by_created:
-            notes = sorted(notes, key=lambda d: d['created'], reverse=True)
+            notes = sorted(notes, key=lambda d: (float('inf') if d["pag"] is None else d["pag"], d["created"]))
         return [class_from_args(Note, x) for x in notes]
 
     @staticmethod
@@ -223,8 +246,11 @@ class QuotesPostgreManager(PostgreManager):
         notes = []
         for note_id in notes_id:
             temp_notes = [x for x in results if x['id'] == note_id]
-            note = {key: temp_notes[0][key] for key in temp_notes[0] if key not in ['tag_id', 'tag', 'quote_id', 'note_id']}
-            note.update({'tags': [x['tag'] for x in temp_notes if x["tag"]]})
+            note = {key: temp_notes[0][key]
+                    for key in temp_notes[0] if key not in ['tag_id', 'tag', 'quote_id', 'note_id']}
+            note.update({'tags': [class_from_args(Tag, {"tag": x['tag'], "note_id": note_id})
+                                  for x in temp_notes if x["tag"]]
+                         })
             note['note_id'] = note.pop('id')
             notes.append(note)
 
@@ -248,11 +274,15 @@ class QuotesPostgreManager(PostgreManager):
             return None
 
         note = {key: results[0][key] for key in results[0] if key not in ['tag_id', 'tag', 'note_id']}
-        note.update({'tags': [x['tag'] for x in results if x['tag']]})
+        note.update({'tags': [class_from_args(Tag, {"tag": x['tag'], "note_id": note_id})
+                              for x in results if x["tag"]]
+                     })  # TODO: this line is repeated in the code, unify it
         return class_from_args(Note, note)
 
-    def update_note_by_note_id(self, note_id: int, set_params: dict) -> bool:  # TODO: unify with update_quote_by_quote_id
-        set_params = ','.join([key + f" = '{set_params[key]}'" if type(set_params[key]) is str else key + f" = {set_params[key]}" for key in set_params])
+    def update_note_by_note_id(self, note_id: int, set_params: dict) -> bool:
+        # TODO: unify with update_quote_by_quote_id
+        set_params = ','.join([key + f" = '{set_params[key]}'" if type(set_params[key]) is str else key + f" = {set_params[key]}"
+                               for key in set_params])
 
         query = f"""
                  UPDATE notes
@@ -290,31 +320,23 @@ class QuotesPostgreManager(PostgreManager):
         return [class_from_args(Note, x) for x in notes]
 
     """ ______ DB: Tags Collection _____ """    # TODO: make Tag object
-    def insert_tag(self, tag: str, quote_id: int = None, note_id: str = None, commit: bool = True) -> bool:
-        if not quote_id and not note_id:
+    def insert_tag(self, tag: Tag, commit: bool = True) -> bool:
+        if not tag.quote_id and not tag.note_id:
             return False
 
-        name_ = 'quote_id' if quote_id else 'note_id'
+        name_ = 'quote_id' if tag.quote_id else 'note_id'
         query = f"""
                 INSERT INTO tags
                 (tag, {name_})
                 VALUES
-                ($${tag}$$, {quote_id if quote_id else note_id})
+                ($${tag}$$, {tag.quote_id if tag.quote_id else tag.note_id})
                 """
         return self.insert_query(query=query, commit=commit)
 
     def get_last_tags(self, max_tags: int = 9) -> List[str]:
-        sorted_notes = self.get_notes_with_tags()
-        tags = []
-        for note in sorted_notes:
-            tags += note.tags
-        set_tags = []
-        for tag in tags:
-            if tag not in set_tags:
-                set_tags += [tag]
-        if len(set_tags) > max_tags:
-            set_tags = set_tags[:max_tags]
-
+        sorted_notes = self.get_notes_with_tags(sorted_by_created=True)
+        tags = [tag for note in sorted_notes for tag in note.get_list_tags()]
+        set_tags = list(OrderedDict.fromkeys(tags))[:max_tags]
         return set_tags
 
     """ ____ DB: Favorites Collection _____"""
@@ -344,6 +366,15 @@ class QuotesPostgreManager(PostgreManager):
         quote_in_language = quote.quote_ita if user.language == 'ITA' else quote.quote
         return quote_in_language if quote_in_language else quote.quote
 
+    @staticmethod
+    def custom_deserializer(dct) -> object:
+        for cls in [Note, Quote, Tag]:
+            try:
+                return cls.from_dict(dct)
+            except (TypeError, KeyError, AttributeError):
+                continue
+        return dct
+
 
 if __name__ == '__main__':
     from src.common.file_manager.FileManager import FileManager
@@ -352,7 +383,7 @@ if __name__ == '__main__':
 
     name = 'Example'
     os_environ = get_environ() == 'HEROKU'
-    sslmode_ = 'require'
+    ssl_mode = 'require'
     postgre_key_var = 'POSTGRE_URL_HEROKU'
     logging_queue = Queue()
 
@@ -360,22 +391,14 @@ if __name__ == '__main__':
     config_manager = FileManager(caller=name, logging_queue=logging_queue)
 
     # __ init postgre manager __
-    postgre_manager = QuotesPostgreManager(db_url=config_manager.get_postgre_url(database_key=postgre_key_var), caller='Example', logging_queue=Queue())
-    postgre_manager.connect(sslmode=sslmode_)
+    postgre_manager = QuotesPostgreManager(db_url=config_manager.get_postgre_url(database_key=postgre_key_var),
+                                           caller='Example',
+                                           logging_queue=Queue())
+    postgre_manager.connect(sslmode=ssl_mode)
 
     print(postgre_manager.get_tables())
 
-    query_ = "select * from notes limit 10"
+    query_ = "SELECT * FROM notes limit 10"
     print(postgre_manager.select_query(query_))
 
     postgre_manager.close_connection()
-
-
-
-
-
-
-
-
-
-

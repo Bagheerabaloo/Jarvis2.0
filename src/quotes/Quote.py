@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Type, Optional
+from src.quotes.Tag import Tag
 
 
 @dataclass
@@ -14,5 +15,9 @@ class Quote:
     private: bool = True
     created: int = None
     last_modified: int = None
-    tags: List[str] = field(default_factory=lambda: [])
+    tags: List[Tag] = field(default_factory=lambda: [])
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
 

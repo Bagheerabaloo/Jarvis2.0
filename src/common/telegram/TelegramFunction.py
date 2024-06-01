@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from copy import deepcopy
 
 from src.common.functions.FunctionType import FunctionType
@@ -24,6 +24,13 @@ class TelegramFunction:
     # callback_photo: bool = False
 
     settings: dict = field(default_factory=lambda: {})
+
+    def to_dict(self):
+        result = asdict(self)
+        for key, value in result.items():
+            if hasattr(value, 'to_dict'):
+                result['settings'][key] = value.to_dict()
+        return result
 
     # last_caller: dict = None
     # state_function: int = 0

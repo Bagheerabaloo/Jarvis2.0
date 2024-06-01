@@ -64,7 +64,7 @@ class FunctionShowQuote(QuotesFunction):
 
         keyboard = self.build_navigation_keyboard(index=index, len_=len(quotes_ids))
         params = {'quote_id': quotes_ids[index]['quote_id']}
-        quote = self.postgre_manager.get_quotes(params=params)[0]
+        quote = self.postgre_manager.get_quotes_by_params(params=params)[0]
         # quote = self.__find_quotes(params)[0]
 
         show_counter_header = f"_{str(index + 1)}/{str(len(quotes_ids))}_\n\n" if self.quotes_user.show_counter else ''

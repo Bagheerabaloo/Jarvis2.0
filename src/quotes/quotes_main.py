@@ -20,6 +20,7 @@ from src.common.functions.FunctionCallback import FunctionCallback
 from src.common.functions.FunctionProcess import FunctionProcess
 from src.common.functions.FunctionStart import FunctionStart
 from src.common.functions.FunctionHelp import FunctionHelp
+from src.common.functions.FunctionTotalDBRows import FunctionTotalDBRows
 
 from src.quotes.functions.FunctionBack import FunctionBack
 from src.quotes.functions.FunctionQuotesNewUser import FunctionQuotesNewUser
@@ -29,7 +30,6 @@ from src.quotes.functions.FunctionNewQuote import FunctionNewQuote
 from src.quotes.functions.FunctionNewNote import FunctionNewNote
 from src.quotes.functions.FunctionShowNotes import FunctionShowNotes
 from src.quotes.functions.FunctionDailyQuote import FunctionDailyQuote
-from src.quotes.functions.FunctionDailyBook import FunctionDailyBook
 from src.quotes.functions.FunctionQuotesSettings import FunctionQuotesSettings
 
 from src.common.file_manager.FileManager import FileManager
@@ -38,6 +38,10 @@ from src.common.tools.library import run_main, get_environ, int_timestamp_now, c
 from src.quotes.QuotesUser import QuotesUser
 from src.quotes.QuotesPostgreManager import QuotesPostgreManager
 from src.quotes.Note import Note
+
+# import yaml
+# from src.quotes.functions import FunctionBack, FunctionQuotesNewUser, FunctionRandomQuote, FunctionShowQuotes, FunctionNewQuote, FunctionNewNote, FunctionShowNotes, FunctionDailyQuote, FunctionDailyBook, FunctionQuotesSettings
+# from src.common.functions import FunctionCiao, FunctionCallback, FunctionProcess, FunctionStart, FunctionHelp
 
 # __ logging __
 import logging
@@ -203,7 +207,7 @@ class Quotes(TelegramManager):
     def __init_book_timer(self):
         eta_1 = build_eta(target_hour=12, target_minute=00)
         eta_2 = build_eta(target_hour=18, target_minute=00)
-        eta_2 = 20
+        # eta_2 = 20
 
         print('Next Note 1 set in ' + str(to_int(eta_1/3600)) + 'h:' + str(to_int((eta_1 % 3600)/60)) + 'm:' + str(to_int(((eta_1 % 3600) % 60))) + 's:')
         print('Next Note 2 set in ' + str(to_int(eta_2/3600)) + 'h:' + str(to_int((eta_2 % 3600)/60)) + 'm:' + str(to_int(((eta_2 % 3600) % 60))) + 's:')
@@ -233,20 +237,22 @@ class Quotes(TelegramManager):
         print(f"Start sending daily book notes at {timestamp2date(time())}")
         for user in self.quotes_users:
             if user.daily_book:
-                function = await self.get_function_by_alias(alias='dailyBook', chat_id=user.telegram_id, user_x=user)
+                function = await self.get_function_by_alias(alias='showNotes', chat_id=user.telegram_id, user_x=user)
                 if not function:
                     continue
                 chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
-                message = self._build_new_telegram_message(chat=chat, text='dailyBook')
+                message = self._build_new_telegram_message(chat=chat, text='showNotes')
                 settings = {"note": note.note,
                             "book": note.book,
                             "index": index,
-                            "notes": notes}
+                            "notes": notes,
+                            "is_book_note": True}
                 await self.execute_command(user_x=user,
                                            command=message.text,
                                            message=message,
                                            chat=chat,
-                                           initial_settings=settings)
+                                           initial_settings=settings,
+                                           initial_state=2)
 
             sleep(0.2)
         print(f"Sending daily book notes completed at {timestamp2date(time())}")
@@ -282,8 +288,8 @@ def main():
     # __ whether it's running on Heroku or local
     os_environ = get_environ() == 'HEROKU'
 
-    # __ determine sslmode depending on environ configurations __
-    sslmode = 'require' if os_environ else 'disable'
+    # __ determine ssl mode depending on environ configurations __
+    ssl_mode = 'require' if os_environ else 'disable'
 
     # __ init file manager __
     config_manager = FileManager()
@@ -294,22 +300,30 @@ def main():
     admin_info = config_manager.get_admin()
     admin_chat = config_manager.get_admin_chat()
 
-    postgre_manager = QuotesPostgreManager(db_url=postgre_url)
-    if not postgre_manager.connect(sslmode=sslmode):
+    postgre_manager = QuotesPostgreManager(db_url=postgre_url, delete_permission=True)
+    if not postgre_manager.connect(sslmode=ssl_mode):
         # logger.warning("PostgreDB connection not established: cannot connect")
         return
 
-    admin_user = TelegramUser(telegram_id=admin_info["chat"], name=admin_info["name"], username=admin_info["username"], is_admin=True)
-    admin_chat = TelegramChat(chat_id=admin_chat['chat_id'], type=admin_chat["type"], username=admin_chat["username"], first_name=admin_chat["first_name"], last_name=admin_chat["last_name"])
+    admin_user = TelegramUser(telegram_id=admin_info["chat"],
+                              name=admin_info["name"],
+                              username=admin_info["username"],
+                              is_admin=True)
+    admin_chat = TelegramChat(chat_id=admin_chat['chat_id'],
+                              type=admin_chat["type"],
+                              username=admin_chat["username"],
+                              first_name=admin_chat["first_name"],
+                              last_name=admin_chat["last_name"])
     telegram_users = postgre_manager.get_telegram_users(admin_user=admin_user)
     telegram_chats = postgre_manager.get_telegram_chats_from_db(admin_chat=admin_chat)
 
-    commands = [    # TODO: move to YAML
+    commands = [    # TODO: move to YAML file
         Command(alias=["back"], admin=False, function=FunctionBack),
         Command(alias=["help"], admin=False, function=FunctionHelp),
         Command(alias=["ciao", "hello"], admin=True, function=FunctionCiao),
         Command(alias=["callback"], admin=True, function=FunctionCallback),
         Command(alias=["process"], admin=True, function=FunctionProcess),
+        Command(alias=["rows"], admin=True, function=FunctionTotalDBRows),
         Command(alias=["start"], admin=False, function=FunctionStart),
         Command(alias=["quote"], admin=False, function=FunctionRandomQuote),
         Command(alias=["showQuotes"], admin=False, function=FunctionShowQuote),
@@ -319,10 +333,13 @@ def main():
         Command(alias=["settings"], admin=False, function=FunctionQuotesSettings),
         Command(alias=["appNewUser"], admin=True, function=FunctionQuotesNewUser, restricted=True),
         Command(alias=["dailyQuote"], admin=False, function=FunctionDailyQuote, restricted=True),
-        Command(alias=["dailyBook"], admin=False, function=FunctionDailyBook, restricted=True),
     ]
 
-    quotes = Quotes(token=token, users=telegram_users, chats=telegram_chats, commands=commands, postgre_manager=postgre_manager)
+    quotes = Quotes(token=token,
+                    users=telegram_users,
+                    chats=telegram_chats,
+                    commands=commands,
+                    postgre_manager=postgre_manager)
     quotes.start()
     run_main(app=quotes)
 
