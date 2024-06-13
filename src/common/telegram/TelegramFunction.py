@@ -29,7 +29,7 @@ class TelegramFunction:
         result = asdict(self)
         for key, value in result.items():
             if hasattr(value, 'to_dict'):
-                result['settings'][key] = value.to_dict()
+                result[key] = value.to_dict()
         return result
 
     # last_caller: dict = None

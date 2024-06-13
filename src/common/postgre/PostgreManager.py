@@ -1,5 +1,6 @@
 import re
 import psycopg2
+from psycopg2 import sql
 import json
 # from tabulate import tabulate
 from dataclasses import dataclass, field, asdict
@@ -119,12 +120,24 @@ class PostgreManager:
         self.logger.debug('ROLLBACK')
 
     # __ Queries __
+    def __log_query(self, query, values):
+        # TODO: change if statement when query is psycopg.sql.SQL
+        if isinstance(query, str):
+            query_txt = re.sub(' +', ' ', query.replace('\n', ' ').strip(' '))
+        elif isinstance(query, sql.SQL):
+            query_txt = query.as_string(self.cursor).replace('\n', ' ').strip(' ')
+        else:
+            query_txt = query
+        if values:
+            query_txt = query_txt % values
+        self.logger.debug(query_txt)
+
     def __execute_query(self, query, values=None) -> bool:
+        #  TODO: all queries should be psycopg.sql.SQL
         try:
-            self.logger.debug(re.sub(' +', ' ', query.replace('\n', ' ').strip(' ')))
+            self.__log_query(query, values)
             self.cursor.execute(query) if not values else self.cursor.execute(query, values)
             return True
-
         except Exception as error:
             self.logger.debug(error)
             return False
@@ -173,6 +186,7 @@ class PostgreManager:
         return self.__execute_and_commit_query(query) if commit else self.__execute_query(query)
 
     """ ##### Telegram Users ##### """
+
     def get_telegram_users(self, admin_user: TelegramUser = None):
         telegram_users = self.select_query("SELECT * FROM telegram_users")
         if (not telegram_users or len(telegram_users) == 0) and admin_user:
@@ -215,6 +229,7 @@ class PostgreManager:
         # self.logger.info('Admin user created')
 
     """ ##### Pending Users ##### """
+
     def get_telegram_pending_users(self) -> List[TelegramPendingUser]:
         pending_users = self.select_query("SELECT * FROM telegram_pending_users")
         if not pending_users or len(pending_users) == 0:
@@ -267,6 +282,7 @@ class PostgreManager:
         return self.update_query(query=query, commit=commit)
 
     """ ##### Telegram Functions ##### """
+
     def insert_telegram_function(self,
                                  telegram_function: TelegramFunction,
                                  chat_id: int,
@@ -389,7 +405,7 @@ class PostgreManager:
         data.pop('chat_id', None)
         return TelegramFunction(**data)
 
-    @ staticmethod
+    @staticmethod
     def custom_deserializer(dct) -> object:
         return dct
 
@@ -422,13 +438,3 @@ if __name__ == '__main__':
     print(postgre_manager.select_query(query_))
 
     postgre_manager.close_connection()
-
-
-
-
-
-
-
-
-
-

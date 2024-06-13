@@ -22,6 +22,7 @@ class Function(ABC):
     postgre_manager: PostgreManager = field(default=None)
     telegram_function: TelegramFunction = field(init=False)
     need_to_update_users: bool = False
+    need_to_instantiate_new_function: bool = False
 
     @property
     def default_keyboard(self):

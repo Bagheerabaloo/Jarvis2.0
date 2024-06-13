@@ -239,6 +239,11 @@ class QuotesPostgreManager(PostgreManager):
             notes = sorted(notes, key=lambda d: (float('inf') if d["pag"] is None else d["pag"], d["created"]))
         return [class_from_args(Note, x) for x in notes]
 
+    def get_books(self) -> List[str]:
+        query = "SELECT DISTINCT book FROM notes"
+        books = self.select_query(query=query)
+        return [x['book'] for x in books] if books else []
+
     @staticmethod
     def __arrange_tags(results: List[dict]) -> List[dict]:
         notes_id = list(set([x['id'] for x in results]))

@@ -179,6 +179,8 @@ class TelegramManager:
         Thread(target=lambda: asyncio.run(self.main_thread()), name=f'{self.name}TgmMngThr').start()
 
     async def main_thread(self):
+        """this function is the main thread that handles the messages received from the telegram bot"""
+
         while self.run:
             if not self.update_stream.empty():
                 telegram_message = self.update_stream.get_nowait()
@@ -190,6 +192,8 @@ class TelegramManager:
             sleep(0.05)
 
     async def __handle_event(self, telegram_message: TelegramMessage):
+        """this function is called when a new message is received from the telegram bot"""
+
         # __ identify the user who sent the update __
         user_x = [x for x in self.app_users if x.telegram_id == telegram_message.from_id]
 
@@ -256,40 +260,84 @@ class TelegramManager:
         function = await self.get_function_by_alias(alias=command, chat_id=message.chat_id, user_x=user_x)
         if not function:
             return False
-        initialized_function = self.instantiate_function(function=function, chat=chat, message=message, is_new=True, function_id=message.message_id, user_x=user_x)
-        await self.__execute_function(function=initialized_function, initial_settings=initial_settings, initial_state=initial_state)
-        return initialized_function
+        return await self.run_new_function(function=function,
+                                           user_x=user_x,
+                                           chat=chat,
+                                           message=message,
+                                           initial_settings=initial_settings,
+                                           initial_state=initial_state)
         # FunctionFactory.get_function(function_type=function_type[0], bot=self.telegram_bot, chat=chat, message=message, function_id=message.message_id, is_new=True)
+
+    async def run_new_function(self,
+                               function,
+                               user_x: TelegramUser,
+                               chat: TelegramChat,
+                               message: TelegramMessage,
+                               initial_settings: dict = None,
+                               initial_state: int = 1):
+
+        initialized_function = self.instantiate_function(function=function,
+                                                         chat=chat,
+                                                         message=message,
+                                                         is_new=True,
+                                                         function_id=message.message_id,
+                                                         user_x=user_x)
+
+        await self.__execute_function(function=initialized_function,
+                                      user_x=user_x,
+                                      initial_settings=initial_settings,
+                                      initial_state=initial_state)
+        return initialized_function
 
     async def __message(self, user_x: TelegramUser, message: TelegramMessage, chat: TelegramChat):
         telegram_function = chat.get_function_open_for_message()
         if telegram_function:
             functions: List[Type[Function]] = self.get_function_by_name(name=telegram_function.name, user_x=user_x)
             function = functions[0]
-            initialized_function = self.instantiate_function(function=function, chat=chat, message=message, is_new=False, function_id=telegram_function.id, user_x=user_x)
-            await self.__execute_function(function=initialized_function)
-            # FunctionFactory.get_function(function_type=telegram_function.function_type, bot=self.telegram_bot, chat=chat, message=message, function_id=telegram_function.id, is_new=False)
-            return
+            return await self.run_existing_function(function=function,
+                                                    function_id=telegram_function.id,
+                                                    user_x=user_x,
+                                                    chat=chat,
+                                                    message=message)
 
         functions = self.get_functions_by_alias(alias=message.text.strip('/'), user_x=user_x)
         if functions:
-            initialized_function = self.instantiate_function(function=functions[0], chat=chat, message=message, is_new=True, function_id=message.message_id, user_x=user_x)
-            await self.__execute_function(function=initialized_function)
+            return await self.run_new_function(function=functions[0],
+                                               user_x=user_x,
+                                               chat=chat,
+                                               message=message)
         else:
             await self.call_message(user_x=user_x, message=message, chat=chat, txt='')
+
+    async def run_existing_function(self,
+                                    function,
+                                    function_id: int,
+                                    user_x: TelegramUser,
+                                    chat: TelegramChat,
+                                    message: TelegramMessage):
+        initialized_function = self.instantiate_function(function=function,
+                                                         chat=chat,
+                                                         message=message,
+                                                         is_new=False,
+                                                         function_id=function_id,
+                                                         user_x=user_x)
+        await self.__execute_function(function=initialized_function, user_x=user_x)
+        return initialized_function
 
     async def __callback(self, user_x: TelegramUser, message: TelegramMessage, chat: TelegramChat):
         telegram_function = chat.get_function_by_callback_message_id(callback_message_id=message.message_id)
         if telegram_function:
             functions: List[Type[Function]] = self.get_function_by_name(name=telegram_function.name, user_x=user_x)
             function = functions[0]
-            fun = self.instantiate_function(function=function, chat=chat, message=message, is_new=False, function_id=telegram_function.id, user_x=user_x)
-            await self.__execute_function(function=fun)
-            # FunctionFactory.get_function(function_type=telegram_function.function_type, bot=self.telegram_bot, chat=chat, message=message, function_id=telegram_function.id, is_new=False)
+            return await self.run_existing_function(function=function,
+                                                    function_id=telegram_function.id,
+                                                    user_x=user_x,
+                                                    chat=chat,
+                                                    message=message)
         else:
-            function = FunctionSendCallback
+            function = FunctionSendCallback  # TODO: handle with functions run_existing_function and run_new_function
             fun = self.instantiate_function(function=function, chat=chat, message=message, is_new=True, function_id=self.__get_next_available_function_id(), user_x=user_x)
-            await self.__execute_function(function=fun)
+            await self.__execute_function(function=fun, user_x=user_x)
 
         """
         callback = update['callback_query']
@@ -334,14 +382,32 @@ class TelegramManager:
         # self.telegram.send_callback(callback_id=update['callback_id'], text='Inline Keyboard has Expired')
         # return False
 
-    async def __execute_function(self, function: Function, initial_settings: dict = None, initial_state: int = 1):
+    async def __execute_function(self, function: Function, user_x: TelegramUser, initial_settings: dict = None, initial_state: int = 1):
         # __ execute the function normally __
         await function.execute(initial_settings=initial_settings, initial_state=initial_state)
+
         # __ checks if users must be refreshed __
         if function.need_to_update_users:
             self.update_users()
 
-    def instantiate_function(self, function, chat: TelegramChat, message: TelegramMessage, is_new: bool, function_id: int, user_x: TelegramUser) -> Function:
+        # __ checks if a new function should be opened __
+        if function.need_to_instantiate_new_function:
+            initial_state = function.telegram_function.settings.pop("initial_state") if "initial_state" in function.telegram_function.settings else 1
+            new_function = function.telegram_function.settings.pop("new_function")
+            if function:
+                await self.run_new_function(function=new_function,
+                                            user_x=user_x,
+                                            chat=function.chat,
+                                            message=function.message,
+                                            initial_settings=function.telegram_function.settings,
+                                            initial_state=initial_state)
+
+    def instantiate_function(self, function,
+                             chat: TelegramChat,
+                             message: TelegramMessage,
+                             is_new: bool,
+                             function_id: int,
+                             user_x: TelegramUser) -> Function:
         return function(bot=self.telegram_bot,
                         chat=chat,
                         message=message,
@@ -412,7 +478,7 @@ class TelegramManager:
         all_chats = self.postgre_manager.get_telegram_chats_from_db()
         diff_users = [x for x in all_users if x.telegram_id not in [x.telegram_id for x in self.users]]
         diff_chats = [x for x in all_chats if x.chat_id not in [x.chat_id for x in self.chats]]
-        print(diff_users)
+        print(diff_users)  # TODO: delete these prints
         print(diff_chats)
         self.users += diff_users
         self.chats += diff_chats

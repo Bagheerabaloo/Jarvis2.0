@@ -20,7 +20,7 @@ class FunctionShowNotes(QuotesFunction):
             return self.close_function()
 
         notes: List[Note] = self.postgre_manager.get_notes_with_tags()
-        self.telegram_function.settings["notes"] = notes
+        self.telegram_function.settings["notes"] = notes  # TODO: keep in memory only notes IDs and if needed get from DB
         self.telegram_function.settings["index"] = 0
         self.telegram_function.settings["is_book_note"] = False
         self.telegram_function.next()
@@ -45,6 +45,7 @@ class FunctionShowNotes(QuotesFunction):
         index = self.telegram_function.settings["index"]
         is_book_note = self.telegram_function.settings["is_book_note"]
         only_one_book = self.telegram_function.settings["only_one_book"]
+
         if self.telegram_function.previous_state == self.telegram_function.state:
             action = self.message.last_message()
             if action == "Show only this book notes":
@@ -52,6 +53,9 @@ class FunctionShowNotes(QuotesFunction):
                 self.telegram_function.settings["only_one_book"] = True
                 self.telegram_function.next()
                 return await self.state_4()
+            elif action == 'Edit note' and self.quotes_user.is_admin:
+                self.telegram_function.next()
+                return await self.state_5()
             index = self.get_new_index(index=index, action=action, len_notes=len(notes))
 
         note = notes[index]
@@ -63,6 +67,8 @@ class FunctionShowNotes(QuotesFunction):
         keyboard = [self.build_navigation_keyboard(index=index, len_=len(notes))]
         if not is_book_note and note.is_book and not only_one_book:
             keyboard.append(["Show only this book notes"])
+        if self.quotes_user.is_admin:
+            keyboard.append(["Edit note"])
 
         await self.edit_message(chat_id=self.chat.chat_id,
                                 text=text,
@@ -73,6 +79,7 @@ class FunctionShowNotes(QuotesFunction):
         self.telegram_function.same()
 
     async def state_4(self):
+        """ ACTION: Show only this book notes """
         note_id = self.telegram_function.settings["notes"][self.telegram_function.settings["index"]].note_id
         notes: List[Note] = [x for x in self.telegram_function.settings["notes"]
                              if x.book == self.telegram_function.settings["book"]]
@@ -83,6 +90,18 @@ class FunctionShowNotes(QuotesFunction):
         self.telegram_function.settings["index"] = index
         self.telegram_function.back()
         return await self.state_3()
+
+    async def state_5(self):
+        """ ACTION: Edit note """
+        note_id = self.telegram_function.settings["notes"][self.telegram_function.settings["index"]].note_id
+        self.telegram_function.settings["note_id"] = note_id
+        text = "Write the new note"
+        await self.send_message(chat_id=self.chat.chat_id,
+                                text=text,
+                                parse_mode="Markdown",
+                                open_for_messages=True)
+        self.telegram_function.next()
+        return await self.state_6()
 
     """ OLD FUNCTION:
 

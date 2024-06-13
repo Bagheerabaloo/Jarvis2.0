@@ -31,6 +31,7 @@ from src.quotes.functions.FunctionNewNote import FunctionNewNote
 from src.quotes.functions.FunctionShowNotes import FunctionShowNotes
 from src.quotes.functions.FunctionDailyQuote import FunctionDailyQuote
 from src.quotes.functions.FunctionQuotesSettings import FunctionQuotesSettings
+from src.quotes.functions.FunctionBook import FunctionBook
 
 from src.common.file_manager.FileManager import FileManager
 from src.common.postgre.PostgreManager import PostgreManager
@@ -296,6 +297,7 @@ def main():
 
     # __ get telegram token __
     token = config_manager.get_telegram_token()
+    # postgre_url = config_manager.get_postgre_url(database_key='POSTGRE_URL_LOCAL_DOCKER')
     postgre_url = config_manager.get_postgre_url()
     admin_info = config_manager.get_admin()
     admin_chat = config_manager.get_admin_chat()
@@ -331,6 +333,7 @@ def main():
         Command(alias=["note"], admin=True, function=FunctionNewNote),
         Command(alias=["showNotes"], admin=False, function=FunctionShowNotes),
         Command(alias=["settings"], admin=False, function=FunctionQuotesSettings),
+        Command(alias=["book"], admin=False, function=FunctionBook),
         Command(alias=["appNewUser"], admin=True, function=FunctionQuotesNewUser, restricted=True),
         Command(alias=["dailyQuote"], admin=False, function=FunctionDailyQuote, restricted=True),
     ]
