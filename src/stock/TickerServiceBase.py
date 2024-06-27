@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import session as sess
 from sqlalchemy.sql import literal, and_
+from sqlalchemy.inspection import inspect
 
 from models import Base, Ticker
 
@@ -22,6 +23,14 @@ class TickerServiceBase:
     session: sess.Session
     symbol: str
     ticker: Ticker = field(default=None, init=False)
+
+    def initialize_ticker(self, ticker: Ticker) -> None:
+        """
+        Initialize the Ticker object for the symbol.
+
+        :param ticker: The Ticker object for the symbol.
+        """
+        self.ticker = ticker
 
     """Generic record update handler for database operations."""
     def handle_generic_record_update(
@@ -68,7 +77,7 @@ class TickerServiceBase:
                 return True
 
             # Log that no changes were detected if specified
-            self.log_no_changes(model_class_name, print_no_changes)
+            # self.log_no_changes(model_class_name, print_no_changes)
             return False
 
         except Exception as e:
@@ -174,7 +183,7 @@ class TickerServiceBase:
         """
         self.session.commit()
         if not last_record:
-            print(f"{self.ticker.symbol} - {model_class_name} - NEW ROW INSERTED")
+            print(f"{self.ticker.symbol} - {model_class_name} - 1 record inserted.")
         else:
             for change in changes_log:
                 print(change)
@@ -193,9 +202,7 @@ class TickerServiceBase:
     def handle_generic_bulk_update(
             self,
             new_data_df: pd.DataFrame,
-            model_class: Type[Base],
-            db_columns: list[str],
-            comparison_columns: list[str]
+            model_class: Type[Base]
     ) -> None:
         """
         Handle the bulk update or insertion of records in the database by comparing with existing data.
@@ -209,8 +216,12 @@ class TickerServiceBase:
             # __ prepare model class name for logging __
             model_class_name = self.format_model_class_name(model_class=model_class)
 
+            # __ get comparison columns and non-nullable columns __
+            comparison_columns = self.get_comparison_columns(model_class=model_class)
+            non_nullable_columns = self.get_non_nullable_columns(model_class=model_class)
+
             # __ prepare new data __
-            new_data_df = self.prepare_new_data(new_data_df=new_data_df, comparison_columns=comparison_columns)
+            new_data_df = self.prepare_new_data(new_data_df=new_data_df, comparison_columns=comparison_columns, non_nullable_columns=non_nullable_columns)
 
             # __ read existing data from the database __
             existing_data_dict = self.read_existing_data(model_class, comparison_columns)
@@ -234,12 +245,48 @@ class TickerServiceBase:
             self.session.rollback()
             print(f"Error occurred during bulk update: {e}")
 
-    def prepare_new_data(self, new_data_df: pd.DataFrame, comparison_columns: list[str]) -> pd.DataFrame:
+    @staticmethod
+    def get_primary_keys_columns(model_class: Type[Base]) -> List[str]:
+        """
+        Get the primary key and non-nullable columns from the database table.
+
+        :param model_class: The SQLAlchemy model class.
+        :return: Tuple containing the primary key and non-nullable columns.
+        """
+        inspector = inspect(model_class)
+        primary_keys = [pk.name for pk in inspector.columns if pk.primary_key]
+        return [x for x in primary_keys if x not in ["ticker_id", "last_update"]]
+
+    @staticmethod
+    def get_non_nullable_columns(model_class: Type[Base]) -> List[str]:
+        """
+        Get the non-nullable columns from the database table.
+
+        :param model_class: The SQLAlchemy model class.
+        :return: List of non-nullable columns.
+        """
+        inspector = inspect(model_class)
+        non_nullables = [c.name for c in inspector.columns if not c.nullable]
+        return [x for x in non_nullables if x not in ["ticker_id", "last_update"]]
+
+    def get_comparison_columns(self, model_class: Type[Base]) -> List[str]:
+        """
+        Get the columns to compare for detecting changes.
+
+        :param model_class: The SQLAlchemy model class.
+        :return: List of columns to compare for detecting changes.
+        """
+        primary_keys = self.get_primary_keys_columns(model_class)
+        non_nullables = self.get_non_nullable_columns(model_class)
+        return list(set(primary_keys + non_nullables))
+
+    def prepare_new_data(self, new_data_df: pd.DataFrame, comparison_columns: list[str], non_nullable_columns: list[str]) -> pd.DataFrame:
         """
         Prepare the new data DataFrame by adding necessary columns and cleaning the data.
 
         :param new_data_df: DataFrame containing the new data.
         :param comparison_columns: List of columns to compare for detecting changes.
+        :param non_nullable_columns: List of non-nullable columns.
         :return: Prepared DataFrame.
         """
         new_data_df['ticker_id'] = self.ticker.id
@@ -248,8 +295,14 @@ class TickerServiceBase:
         # Convert empty strings to NaN for consistent handling of null values
         new_data_df = new_data_df.replace(r'^\s*$', None, regex=True)
 
+        datetime_cols = new_data_df.select_dtypes(include=['datetime64']).columns
+        new_data_df[datetime_cols] = new_data_df[datetime_cols].replace({pd.NaT: None})
+
         # Normalize column names to match SQLAlchemy model attributes
         new_data_df.columns = [col.lower().replace(' ', '_') for col in new_data_df.columns]
+
+        # Drop rows with NaN values in the comparison columns
+        new_data_df = new_data_df.dropna(subset=non_nullable_columns)
 
         # Drop duplicates based on the comparison columns
         new_data_df = new_data_df.drop_duplicates(subset=comparison_columns)
@@ -327,6 +380,7 @@ class TickerServiceBase:
 
             if matching_key:
                 existing_record = existing_data_dict[matching_key]
+                new_record_data.pop("last_update") if "last_update" in new_record_data else None
                 changes_log = self.compare_and_log_changes(existing_record, new_record_data, model_class.__tablename__)
 
                 if not changes_log:
@@ -368,9 +422,10 @@ class TickerServiceBase:
         """
         if records_to_insert:
             self.session.bulk_save_objects(records_to_insert)
+            self.session.commit()
             print(f"{self.ticker.symbol} - {model_class_name} - {len(records_to_insert)} records inserted.")
-        else:
-            print(f"{self.ticker.symbol} - {model_class_name} - no changes detected.")
+        # else:
+        #     print(f"{self.ticker.symbol} - {model_class_name} - no changes detected")
 
     def bulk_insert(self, data: pd.DataFrame, model_class: Type[Base]) -> None:
         """

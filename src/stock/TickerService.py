@@ -1,5 +1,7 @@
+import yfinance as yf
 import pandas as pd
 import numpy as np
+import pytz
 import uuid
 from datetime import datetime, date
 from typing import Type, Optional, List
@@ -8,6 +10,9 @@ from decimal import Decimal
 
 from sqlalchemy.orm import session as sess
 from sqlalchemy.sql import literal, and_
+from sqlalchemy.inspection import inspect
+
+from src.common.tools.library import safe_execute
 
 from TickerServiceBase import Ticker, TickerServiceBase
 from models import Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates
@@ -15,10 +20,16 @@ from models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorInd
 from models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
 from models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
 from models import UpgradesDowngrades
+from CandleService import CandleService
+from CandleDataInterval import CandleDataInterval
+
+pd.set_option('future.no_silent_downcasting', True)
 
 
 @dataclass
 class TickerService(TickerServiceBase):
+    candle_service: CandleService = field(default=None, init=False)
+
     """ Handle the insertion or update of a Ticker record in the database. """
     def handle_ticker(self, info: dict) -> bool:
         ticker_data = {"symbol": self.symbol, "company_name": info["longName"], "business_summary": info["longBusinessSummary"]}
@@ -60,7 +71,7 @@ class TickerService(TickerServiceBase):
             updated_fields['business_summary'] = (existing_ticker.business_summary, ticker_data['business_summary'])
             existing_ticker.business_summary = ticker_data['business_summary']
 
-        self.ticker = existing_ticker
+        self.initialize_ticker(ticker=existing_ticker)  # initialize Ticker attribute
 
         # Only commit and print updates if there are changes
         if updated_fields:
@@ -70,7 +81,7 @@ class TickerService(TickerServiceBase):
                 print(f" - {field_}: {old_value} -> {new_value}")
             return True
 
-        print(f"{ticker_data['symbol']} - {'Ticker'.rjust(50)} - no changes detected.")
+        # print(f"{ticker_data['symbol']} - {'Ticker'.rjust(50)} - no changes detected")
         return False
 
     def create_new_ticker(self, ticker_data: dict) -> None:
@@ -83,7 +94,20 @@ class TickerService(TickerServiceBase):
         self.session.add(new_ticker)
         self.session.commit()
         print(f"{ticker_data['symbol']} - {'Ticker'.rjust(50)} - ADDED successfully.")
-        self.ticker = new_ticker
+        self.initialize_ticker(ticker=new_ticker)  # initialize Ticker attribute
+
+    def initialize_ticker(self, ticker: Ticker) -> None:
+        """
+        Initialize the Ticker object for the symbol.
+
+        :param ticker: The Ticker object for the symbol.
+        """
+        self.ticker = ticker
+        self.initialize_candle_service()  # initialize CandleService
+
+    def initialize_candle_service(self):
+        self.candle_service = CandleService(session=self.session, symbol=self.ticker.symbol)  # initialize CandleService
+        self.candle_service.initialize_ticker(ticker=self.ticker)  # initialize CandleService ticker attribute
 
     """Handle of all other information"""
 
@@ -400,40 +424,21 @@ class TickerService(TickerServiceBase):
 
         :param actions: DataFrame containing the actions data.
         """
-        # Reset the index to include the date as a column
+        # __ rename and reset the index and convert it to date __
         actions.reset_index(inplace=True)
-        # Filter out rows that already exist in the database
         actions['Date'] = pd.to_datetime(actions['Date']).dt.tz_localize(None)
 
-        # Normalize column names to match SQLAlchemy model attributes
+        # __ normalize column names to match SQLAlchemy model attributes __
         actions.columns = [col.lower().replace(' ', '_') for col in actions.columns]
 
-        # Convert the date column to datetime.date objects
+        # __ convert the date column to datetime.date objects
         actions['date'] = pd.to_datetime(actions['date']).dt.date
 
-        changed = False
-
-        # Iterate over each row in the actions DataFrame
-        for _, row in actions.iterrows():
-            # Prepare the new record data
-            new_record_data = {
-                'date': row['date'],
-                'dividends': row.get('dividends', None),
-                'stock_splits': row.get('stock_splits', None)
-            }
-
-            # Call the generic function to handle insert/update
-            changed |= self.handle_generic_record_update(
-                new_record_data=new_record_data,
-                model_class=Action,
-                additional_filters=[
-                    Action.date == row['date']
-                ],
-                print_no_changes=False  # Do not print "no changes detected" messages
-            )
-
-        if not changed:
-            print(f"{self.ticker.symbol} - {'Actions'.rjust(50)} - no changes detected.")
+        # __ call the bulk update handler __
+        self.handle_generic_bulk_update(
+            new_data_df=actions,
+            model_class=Action
+        )
 
     def handle_calendar(self, calendar: dict) -> None:
         """
@@ -464,18 +469,15 @@ class TickerService(TickerServiceBase):
 
         :param earnings_dates: DataFrame containing the earnings dates data.
         """
-        # Rename index to "Date"
-        earnings_dates.index.name = "Date"
-
-        # Extract the date column and reset the index
+        # __ rename and reset the index and convert it to date __
+        earnings_dates.index.name = "date"
         earnings_dates.reset_index(inplace=True)
-
-        # Normalize column names and handle any renaming needed (matching the SQLAlchemy model attributes)
-        earnings_dates.columns = [col.replace(' ', '_').lower() for col in earnings_dates.columns]
-
-        # Convert the date column to datetime objects (if it's not already in that format)
-        # earnings_dates['date'] = pd.to_datetime(earnings_dates['date']).dt.tz_localize(None).date()  # Ensure it's date only
         earnings_dates['date'] = pd.to_datetime(earnings_dates['date']).dt.date  # Ensure it's date only
+
+        # __ rename columns to match the database columns __
+        earnings_dates.rename(columns={
+            'Surprise(%)': 'Surprise Percent'
+        }, inplace=True)
 
         def determine_earnings_period(earnings_date: date) -> str:
             """
@@ -497,31 +499,13 @@ class TickerService(TickerServiceBase):
             else:
                 raise ValueError("Invalid month for determining earnings period")
 
-        changed = False
+        earnings_dates['earnings_period'] = earnings_dates['date'].apply(determine_earnings_period)
 
-        # Iterate over each row in the earnings_dates DataFrame
-        for _, row in earnings_dates.iterrows():
-            # Prepare the new record data
-            new_record_data = {
-                'date': row['date'],
-                'earnings_period': determine_earnings_period(row['date']),
-                'eps_estimate': row.get('eps_estimate', None),
-                'reported_eps': row.get('reported_eps', None),
-                'surprise_percent': row.get('surprise_percent', None)
-            }
-
-            # Call the generic function to handle insert/update
-            changed |= self.handle_generic_record_update(
-                new_record_data=new_record_data,
-                model_class=EarningsDates,
-                additional_filters=[
-                    EarningsDates.date == row['date']
-                ],
-                print_no_changes=False  # Do not print "no changes detected" messages
-            )
-
-        if not changed:
-            print(f"{self.ticker.symbol} - {'Earnings Dates'.rjust(50)} - no changes detected")
+        # __ call the bulk update handler __
+        self.handle_generic_bulk_update(
+            new_data_df=earnings_dates,
+            model_class=EarningsDates
+        )
 
     def handle_info_company_address(self, info_data: dict) -> None:
         """
@@ -553,73 +537,15 @@ class TickerService(TickerServiceBase):
 
         :param info_data: Dictionary containing the stock information, including sector and industry.
         """
-        try:
-            # Extract the necessary information from stock_info
-            sector = info_data.get('sector')
-            industry = info_data.get('industry')
-            start_date = pd.to_datetime('today').date()  # Use today's date as the start date for the new record
+        new_record_data = {
+            'sector': info_data.get('sector', None),
+            'industry': info_data.get('industry', None)
+        }
 
-            # Check for an existing record with a NULL end_date for the same ticker_id
-            existing_record = self.session.query(InfoSectorIndustryHistory).filter(
-                InfoSectorIndustryHistory.ticker_id == literal(self.ticker.id),
-                InfoSectorIndustryHistory.end_date == None
-            ).order_by(
-                InfoSectorIndustryHistory.start_date.desc()
-            ).first()
-
-            if existing_record:
-                changes_log = []
-
-                # Compare the current sector and industry with the new values
-                if existing_record.sector != sector or existing_record.industry != industry:
-                    # Log the change details
-                    changes_log.append(
-                        f"{self.ticker.symbol} - Sector/Industry changed from Sector: {existing_record.sector}, "
-                        f"Industry: {existing_record.industry} to Sector: {sector}, Industry: {industry}."
-                    )
-
-                    # Update the existing record to set the end_date
-                    existing_record.end_date = start_date
-
-                    # Create a new record with the new sector and industry
-                    new_sector_industry_record = InfoSectorIndustryHistory(
-                        ticker_id=self.ticker.id,
-                        sector=sector,
-                        industry=industry,
-                        start_date=start_date,
-                        end_date=None  # This is the current valid entry
-                    )
-
-                    self.session.add(new_sector_industry_record)
-
-                    # Commit the changes to the database
-                    self.session.commit()
-                    for change in changes_log:
-                        print(change)
-
-                else:
-                    print(f"{self.ticker.symbol} - {'Sector/Industry'.rjust(50)} - no changes detected")
-
-            else:
-                # Create a new record if no existing record with a NULL end_date is found
-                new_sector_industry_record = InfoSectorIndustryHistory(
-                    ticker_id=self.ticker.id,
-                    sector=sector,
-                    industry=industry,
-                    start_date=start_date,
-                    end_date=None  # This is the current valid entry
-                )
-
-                # Add the object to the session
-                self.session.add(new_sector_industry_record)
-                # Commit the session to the database
-                self.session.commit()
-                print(f"{self.ticker.symbol} - {'Sector/Industry'.rjust(50)} - INSERTED successfully.")
-
-        except Exception as e:
-            # Rollback the transaction in case of an error
-            self.session.rollback()
-            print(f"Error occurred: {e}")
+        self.handle_generic_record_update(
+            new_record_data=new_record_data,
+            model_class=InfoSectorIndustryHistory
+        )
 
     def handle_info_target_price_and_recommendation(self, info_data: dict) -> None:
         """
@@ -869,6 +795,10 @@ class TickerService(TickerServiceBase):
 
         :param insider_purchases: DataFrame containing the insider purchases data.
         """
+        # __ substitute NaN values with 0 in the 'Shares' column __
+        insider_purchases['Shares'] = insider_purchases['Shares'].fillna(0)  # TODO: review this operation
+        insider_purchases['Trans'] = insider_purchases['Trans'].fillna(0)
+
         # Define a mapping from the DataFrame index to the corresponding database columns
         type_mapping = {
             'Purchases': {
@@ -935,90 +865,26 @@ class TickerService(TickerServiceBase):
 
         :param insider_roster_holders: DataFrame containing the insider roster holders data.
         """
+        # insider_roster_holders['Shares Owned Directly'] = insider_roster_holders['Shares Owned Directly'].apply(lambda x: int(x) if not pd.isna(x) else x)
+        # insider_roster_holders['Shares Owned Indirectly'] = insider_roster_holders['Shares Owned Indirectly'].apply(lambda x: int(x) if not pd.isna(x) else x)
 
-        changed = False
+        # __ normalize column names to match SQLAlchemy model attributes __
+        insider_roster_holders.columns = [col.lower().replace(' ', '_') for col in insider_roster_holders.columns]
+        if 'shares_owned_indirectly' not in insider_roster_holders.columns:
+            insider_roster_holders['shares_owned_indirectly'] = None
+        if 'position_indirect_date' not in insider_roster_holders.columns:
+            insider_roster_holders['position_indirect_date'] = None
+        if 'positionsummarydate' in insider_roster_holders.columns:
+            insider_roster_holders.drop(columns='positionsummarydate', inplace=True)
 
-        # Iterate over each row in the insider_roster_holders DataFrame
-        for _, row in insider_roster_holders.iterrows():
-            # Prepare a dictionary to hold the new record data
-            new_record_data = {
-                'name': row.get('Name', None),
-                'position': row.get('Position', None),
-                'url': row.get('URL', None),
-                'most_recent_transaction': row.get('Most Recent Transaction', None),
-                'latest_transaction_date': pd.to_datetime(row.get('Latest Transaction Date', None)),  # Convert to datetime
-                'shares_owned_directly': row.get('Shares Owned Directly', None),
-                'position_direct_date': pd.to_datetime(row.get('Position Direct Date', None)),  # Convert to datetime
-                'shares_owned_indirectly': row.get('Shares Owned Indirectly', None),
-                'position_indirect_date': pd.to_datetime(row.get('Position Indirect Date', None))  # Convert to datetime
-            }
+        insider_roster_holders['shares_owned_directly'] = insider_roster_holders['shares_owned_directly'].fillna(0).astype('int64')  # TODO: improve this
+        insider_roster_holders['shares_owned_indirectly'] = insider_roster_holders['shares_owned_indirectly'].fillna(0).astype('int64')
 
-            # Replace NaT with None for datetime fields
-            for date_field in ['latest_transaction_date', 'position_direct_date', 'position_indirect_date']:
-                if pd.isna(new_record_data[date_field]):
-                    new_record_data[date_field] = None
-
-            # Replace NaN with None for float fields
-            for numeric_field in ['shares_owned_directly', 'shares_owned_indirectly']:
-                if pd.isna(new_record_data[numeric_field]):
-                    new_record_data[numeric_field] = None
-
-            # Use the handle_record_update function to handle the record
-            changed |= self.handle_generic_record_update(
-                new_record_data=new_record_data,
-                model_class=InsiderRosterHolders,
-                additional_filters=[InsiderRosterHolders.name == new_record_data['name']],
-                print_no_changes=False
-            )
-
-        if not changed:
-            print(f"{self.ticker.symbol} - {'Insider Roster Holders'.rjust(50)} - no changes detected")
-
-    def handle_insider_transactions_old(self, insider_transactions: pd.DataFrame) -> None:
-        """
-        Handle the insertion or update of insider transactions data into the database.
-
-        :param insider_transactions: DataFrame containing the insider transactions data.
-        """
-        # Normalize column names to match SQLAlchemy model attributes
-        insider_transactions.columns = [col.lower().replace(' ', '_') for col in insider_transactions.columns]
-
-        # Convert relevant columns to appropriate types
-        insider_transactions['start_date'] = pd.to_datetime(insider_transactions['start_date'])
-
-        changed = False
-
-        # Iterate over each row in the insider_transactions DataFrame
-        for _, row in insider_transactions.iterrows():
-            new_record_data = {
-                'shares': row.get('shares', None),
-                'value': row.get('value', None),
-                'url': row.get('url', None),
-                'text': row.get('text', None),
-                'insider': row.get('insider', None),
-                'position': row.get('position', None),
-                'transaction_type': row.get('transaction', None),
-                'start_date': row.get('start_date', None),
-                'ownership': row.get('ownership', None)
-            }
-
-            # Replace NaN with None for float fields
-            for numeric_field in ['shares', 'value']:
-                if pd.isna(new_record_data[numeric_field]):
-                    new_record_data[numeric_field] = None
-
-            # Call the generic function to handle insert/update
-            changed |= self.handle_generic_record_update(
-                new_record_data=new_record_data,
-                model_class=InsiderTransactions,
-                additional_filters=[InsiderTransactions.start_date == row['start_date'].date(),
-                                    InsiderTransactions.insider == new_record_data['insider'],
-                                    InsiderTransactions.value == new_record_data['value']],
-                print_no_changes=False
-            )
-
-        if not changed:
-            print(f"{self.ticker.symbol} - {'Insider Transactions'.rjust(50)} - no changes detected")
+        # __ call the bulk update handler __
+        self.handle_generic_bulk_update(
+            new_data_df=insider_roster_holders,
+            model_class=InsiderRosterHolders
+        )
 
     def handle_insider_transactions(self, insider_transactions: pd.DataFrame) -> None:
         """
@@ -1026,30 +892,16 @@ class TickerService(TickerServiceBase):
 
         :param insider_transactions: DataFrame containing the insider transactions data.
         """
-        # Normalize column names to match SQLAlchemy model attributes
+        # __ normalize column names to match SQLAlchemy model attributes __
         insider_transactions.columns = [col.lower().replace(' ', '_') for col in insider_transactions.columns]
 
-        # Convert relevant columns to appropriate types
+        # __ convert relevant columns to appropriate types __
         insider_transactions['start_date'] = pd.to_datetime(insider_transactions['start_date'])
 
-        # Filter out rows where 'start_date' or 'insider' is null
-        insider_transactions = insider_transactions.dropna(subset=['start_date', 'insider'])
-
-        # Define the columns to retrieve from the database and compare with the new data
-        db_columns = [
-            'ticker_id', 'start_date', 'shares', 'value', 'url',
-            'text', 'insider', 'position', 'transaction', 'ownership'
-        ]
-
-        # Define the columns to use for comparison to find new or updated records
-        comparison_columns = ['start_date', 'insider', 'shares', 'value']
-
-        # Call the bulk update handler
+        # __ call the bulk update handler __
         self.handle_generic_bulk_update(
             new_data_df=insider_transactions,
-            model_class=InsiderTransactions,
-            db_columns=db_columns,
-            comparison_columns=comparison_columns
+            model_class=InsiderTransactions
         )
 
     def handle_institutional_holders(self, institutional_holders: pd.DataFrame) -> None:
@@ -1058,38 +910,27 @@ class TickerService(TickerServiceBase):
 
         :param institutional_holders: DataFrame containing the institutional holders' data.
         """
-        # Normalize column names to match SQLAlchemy model attributes
+        # __ check if the DataFrame is empty __
+        if institutional_holders.empty:
+            print(f"{self.ticker.symbol} - {'Institutional Holders'.rjust(50)} - no data to process")
+            return
+
+        # __ normalize column names to match SQLAlchemy model attributes __
         institutional_holders.columns = [col.lower().replace(' ', '_') for col in institutional_holders.columns]
 
-        # Convert the date_reported column to datetime.date objects (if it's not already in that format)
+        # __ convert the date_reported column to datetime.date objects (if it's not already in that format) __
         institutional_holders['date_reported'] = pd.to_datetime(institutional_holders['date_reported']).dt.date  # Ensure it's date only
 
-        changed = False
+        # __ rename columns to match the database columns __
+        institutional_holders.rename(columns={
+            'pctheld': 'pct_held'
+        }, inplace=True)
 
-        # Iterate over each row in the institutional_holders DataFrame
-        for _, row in institutional_holders.iterrows():
-            # Prepare the new record data
-            new_record_data = {
-                'date_reported': row['date_reported'],
-                'holder': row['holder'],
-                'pct_held': row.get('pctheld', None),
-                'shares': row.get('shares', None),
-                'value': row.get('value', None)
-            }
-
-            # Call the generic function to handle insert/update
-            changed |= self.handle_generic_record_update(
-                new_record_data=new_record_data,
-                model_class=InstitutionalHolders,
-                additional_filters=[
-                    InstitutionalHolders.date_reported == row['date_reported'],
-                    InstitutionalHolders.holder == row['holder']
-                ],
-                print_no_changes=False  # Do not print "no changes detected" messages
-            )
-
-        if not changed:
-            print(f"{self.ticker.symbol} - {'Institutional Holders'.rjust(50)} - no changes detected")
+        # __ call the bulk update handler __
+        self.handle_generic_bulk_update(
+            new_data_df=institutional_holders,
+            model_class=InstitutionalHolders
+        )
 
     def handle_major_holders(self, major_holders: pd.DataFrame) -> None:
         """
@@ -1119,7 +960,7 @@ class TickerService(TickerServiceBase):
             model_class=MajorHolders
         )
 
-    def handle_mutual_fund_holders(self, mutual_fund_holders: pd.DataFrame) -> None:
+    def handle_mutual_fund_holders_deprecated(self, mutual_fund_holders: pd.DataFrame) -> None:
         """
         Handle the insertion or update of mutual fund holders data into the database.
 
@@ -1158,6 +999,34 @@ class TickerService(TickerServiceBase):
         if not changed:
             print(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no changes detected")
 
+    def handle_mutual_fund_holders(self, mutual_fund_holders: pd.DataFrame) -> None:
+        """
+        Handle the insertion or update of mutual fund holders data into the database.
+
+        :param mutual_fund_holders: DataFrame containing the mutual fund holders data.
+        """
+        # __ check if the DataFrame is empty __
+        if mutual_fund_holders.empty:
+            print(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to process")
+            return
+
+        # __ normalize column names to match SQLAlchemy model attributes __
+        mutual_fund_holders.columns = [col.lower().replace(' ', '_') for col in mutual_fund_holders.columns]
+
+        # __ convert the date_reported column to datetime.date objects (if it's not already in that format) __
+        mutual_fund_holders['date_reported'] = pd.to_datetime(mutual_fund_holders['date_reported']).dt.date  # Ensure it's date only
+
+        # __ rename columns to match the database columns __
+        mutual_fund_holders.rename(columns={
+            'pctheld': 'pct_held'
+        }, inplace=True)
+
+        # __ call the bulk update handler __
+        self.handle_generic_bulk_update(
+            new_data_df=mutual_fund_holders,
+            model_class=MutualFundHolders
+        )
+
     def handle_recommendations(self, recommendations: pd.DataFrame) -> None:
         """
         Handle the insertion or update of recommendations data into the database.
@@ -1167,80 +1036,65 @@ class TickerService(TickerServiceBase):
         # Normalize column names to match SQLAlchemy model attributes
         recommendations.columns = [col.lower().replace(' ', '_') for col in recommendations.columns]
 
-        changed = False
+        # __ rename columns to match the database columns __
+        recommendations.rename(columns={
+            'strongbuy': 'strong_buy',
+            'strongsell': 'strong_sell'
+        }, inplace=True)
 
-        # Iterate over each row in the recommendations DataFrame
-        for _, row in recommendations.iterrows():
-            # Prepare the new record data
-            new_record_data = {
-                'period': row.get('period', None),
-                'strong_buy': row.get('strongbuy', None),
-                'buy': row.get('buy', None),
-                'hold': row.get('hold', None),
-                'sell': row.get('sell', None),
-                'strong_sell': row.get('strongsell', None)
-            }
+        # __ call the bulk update handler __
+        self.handle_generic_bulk_update(
+            new_data_df=recommendations,
+            model_class=Recommendations
+        )
 
-            # Call the generic function to handle insert/update
-            changed |= self.handle_generic_record_update(
-                new_record_data=new_record_data,
-                model_class=Recommendations,
-                additional_filters=[
-                    Recommendations.period == row['period']
-                ],
-                print_no_changes=False  # Do not print "no changes detected" messages
-            )
+    @staticmethod
+    def clean_upgrades_downgrades(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Clean the upgrades/downgrades DataFrame by removing unnecessary columns and rows.
 
-        if not changed:
-            print(f"{self.ticker.symbol} - {'Recommendations'.rjust(50)} - no changes detected")
+        :param df: The upgrades/downgrades DataFrame to clean.
+        :return: The cleaned upgrades/downgrades DataFrame.
+        """
+        # Treat empty strings as NaN
+        df.replace('', None, inplace=True)
 
-    def handle_upgrades_downgrades(self, upgrades_downgrades: pd.DataFrame) -> None:
+        # Drop rows where 'to_grade' is null after the replacement
+        df = df.dropna(subset=['tograde'])
+
+        # Make a copy to avoid the SettingWithCopyWarning
+        df_cleaned = df.copy()
+
+        # Create a column that counts the number of null values (including the treated empty strings) in each row
+        df_cleaned['null_count'] = df_cleaned.isnull().sum(axis=1)
+
+        # Sort the DataFrame to ensure the record with the least number of nulls is first
+        df_cleaned = df_cleaned.sort_values(by=['date', 'firm', 'null_count'], ascending=[True, True, True])
+
+        # Drop duplicates, keeping the first occurrence (which has the least number of nulls)
+        df_cleaned = df_cleaned.drop_duplicates(subset=['date', 'firm'], keep='first')
+
+        # Drop the helper column
+        df_cleaned = df_cleaned.drop(columns=['null_count'])
+
+        return df_cleaned
+
+    def handle_upgrades_downgrades_deprecated(self, upgrades_downgrades: pd.DataFrame) -> None:
         """
         Handle the insertion or update of upgrades and downgrades data into the database.
 
         :param upgrades_downgrades: DataFrame containing the upgrades and downgrades data.
         """
-
-        def clean_upgrades_downgrades(df: pd.DataFrame) -> pd.DataFrame:
-            """
-            Clean the upgrades/downgrades DataFrame by removing unnecessary columns and rows.
-
-            :param df: The upgrades/downgrades DataFrame to clean.
-            :return: The cleaned upgrades/downgrades DataFrame.
-            """
-            # Treat empty strings as NaN
-            df.replace('', None, inplace=True)
-
-            # Drop rows where 'to_grade' is null after the replacement
-            df = df.dropna(subset=['tograde'])
-
-            # Make a copy to avoid the SettingWithCopyWarning
-            df_cleaned = df.copy()
-
-            # Create a column that counts the number of null values (including the treated empty strings) in each row
-            df_cleaned['null_count'] = df_cleaned.isnull().sum(axis=1)
-
-            # Sort the DataFrame to ensure the record with the least number of nulls is first
-            df_cleaned = df_cleaned.sort_values(by=['date', 'firm', 'null_count'], ascending=[True, True, True])
-
-            # Drop duplicates, keeping the first occurrence (which has the least number of nulls)
-            df_cleaned = df_cleaned.drop_duplicates(subset=['date', 'firm'], keep='first')
-
-            # Drop the helper column
-            df_cleaned = df_cleaned.drop(columns=['null_count'])
-
-            return df_cleaned
-
-        # Rename index to 'date' and reset the index to make it a column
+        # __ rename index to 'date' and reset the index to make it a column __
         upgrades_downgrades.index.name = 'date'
         upgrades_downgrades.reset_index(inplace=True)
         upgrades_downgrades['date'] = pd.to_datetime(upgrades_downgrades['date']).dt.date  # Ensure it's date only
 
-        # Normalize column names to match SQLAlchemy model attributes
+        # __ normalize column names to match SQLAlchemy model attributes __
         upgrades_downgrades.columns = [col.lower().replace(' ', '_') for col in upgrades_downgrades.columns]
 
-        # clean the upgrades_downgrades DataFrame
-        upgrades_downgrades = clean_upgrades_downgrades(upgrades_downgrades)
+        # __ clean the upgrades_downgrades DataFrame __
+        upgrades_downgrades = self.clean_upgrades_downgrades(upgrades_downgrades)
 
         changed = False
 
@@ -1268,3 +1122,38 @@ class TickerService(TickerServiceBase):
 
         if not changed:
             print(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no changes detected")
+
+    def handle_upgrades_downgrades(self, upgrades_downgrades: pd.DataFrame) -> None:
+        """
+        Handle the insertion or update of upgrades and downgrades data into the database.
+
+        :param upgrades_downgrades: DataFrame containing the upgrades and downgrades data.
+        """
+        # __ rename index to 'date' and reset the index to make it a column __
+        upgrades_downgrades.index.name = 'date'
+        upgrades_downgrades.reset_index(inplace=True)
+        upgrades_downgrades['date'] = pd.to_datetime(upgrades_downgrades['date']).dt.date  # Ensure it's date only
+
+        # __ normalize column names to match SQLAlchemy model attributes __
+        upgrades_downgrades.columns = [col.lower().replace(' ', '_') for col in upgrades_downgrades.columns]
+
+        # __ rename columns to match the database columns __
+        upgrades_downgrades.rename(columns={
+            'firm': 'firm',
+            'tograde': 'to_grade',
+            'fromgrade': 'from_grade',
+            'action': 'action'
+        }, inplace=True)
+
+        # __ call the bulk update handler __
+        self.handle_generic_bulk_update(
+            new_data_df=upgrades_downgrades,
+            model_class=UpgradesDowngrades
+        )
+
+    # __ candles handling __
+    def handle_candle_data(self, interval: CandleDataInterval) -> None:
+        """
+        Delegate the handling of candle data to the CandleService.
+        """
+        self.candle_service.handle_candle_data(interval)

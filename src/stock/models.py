@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, Numeric, ForeignKey, TIMESTAMP, BigInteger, Date, DateTime, UUID as SA_UUID
+from sqlalchemy import Column, Integer, String, Text, Boolean, Numeric, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import Float, TIMESTAMP, BigInteger, Date, DateTime, UUID as SA_UUID
 from sqlalchemy.orm import relationship
 from src.stock.database import Base
 
@@ -11,29 +12,37 @@ class Ticker(Base):
     company_name = Column(Text)  # Full company name
     business_summary = Column(Text)  # Business summary description
 
-    # Relationship with actions table
-    actions = relationship("Action", back_populates="ticker")
-    balance_sheet = relationship("BalanceSheet", back_populates="ticker")
-    calendar = relationship("Calendar", back_populates="ticker")
-    cash_flow = relationship("CashFlow", back_populates="ticker")
-    earnings_dates = relationship("EarningsDates", back_populates="ticker")
-    financials = relationship("Financials", back_populates="ticker")
-    info_cash_and_financial_ratios = relationship("InfoCashAndFinancialRatios", back_populates="ticker")
-    info_company_address = relationship("InfoCompanyAddress", back_populates="ticker")
-    info_sector_industry_history = relationship("InfoSectorIndustryHistory", back_populates="ticker")
-    info_target_price_and_recommendation = relationship("InfoTargetPriceAndRecommendation", back_populates="ticker")
-    info_market_and_financial_metrics = relationship("InfoMarketAndFinancialMetrics", back_populates="ticker")
-    info_general_stock = relationship("InfoGeneralStock", back_populates="ticker")
-    info_governance = relationship("InfoGovernance", back_populates="ticker")
-    info_trading_session = relationship("InfoTradingSession", back_populates="ticker")
-    insider_purchases = relationship("InsiderPurchases", back_populates="ticker")
-    insider_roster_holders = relationship("InsiderRosterHolders", back_populates="ticker")
-    insider_transactions = relationship("InsiderTransactions", back_populates="ticker")
-    institutional_holders = relationship("InstitutionalHolders", back_populates="ticker")
-    major_holders = relationship("MajorHolders", back_populates="ticker")
-    mutualfund_holders = relationship("MutualFundHolders", back_populates="ticker")
-    recommendations = relationship("Recommendations", back_populates="ticker")
-    upgrades_downgrades = relationship("UpgradesDowngrades", back_populates="ticker")
+    # Relationships
+    actions = relationship("Action", back_populates="ticker", cascade="all, delete-orphan")
+    balance_sheet = relationship("BalanceSheet", back_populates="ticker", cascade="all, delete-orphan")
+    calendar = relationship("Calendar", back_populates="ticker", cascade="all, delete-orphan")
+    cash_flow = relationship("CashFlow", back_populates="ticker", cascade="all, delete-orphan")
+    earnings_dates = relationship("EarningsDates", back_populates="ticker", cascade="all, delete-orphan")
+    financials = relationship("Financials", back_populates="ticker", cascade="all, delete-orphan")
+    info_cash_and_financial_ratios = relationship("InfoCashAndFinancialRatios", back_populates="ticker", cascade="all, delete-orphan")
+    info_company_address = relationship("InfoCompanyAddress", back_populates="ticker", cascade="all, delete-orphan")
+    info_sector_industry_history = relationship("InfoSectorIndustryHistory", back_populates="ticker", cascade="all, delete-orphan")
+    info_target_price_and_recommendation = relationship("InfoTargetPriceAndRecommendation", back_populates="ticker", cascade="all, delete-orphan")
+    info_market_and_financial_metrics = relationship("InfoMarketAndFinancialMetrics", back_populates="ticker", cascade="all, delete-orphan")
+    info_general_stock = relationship("InfoGeneralStock", back_populates="ticker", cascade="all, delete-orphan")
+    info_governance = relationship("InfoGovernance", back_populates="ticker", cascade="all, delete-orphan")
+    info_trading_session = relationship("InfoTradingSession", back_populates="ticker", cascade="all, delete-orphan")
+    insider_purchases = relationship("InsiderPurchases", back_populates="ticker", cascade="all, delete-orphan")
+    insider_roster_holders = relationship("InsiderRosterHolders", back_populates="ticker", cascade="all, delete-orphan")
+    insider_transactions = relationship("InsiderTransactions", back_populates="ticker", cascade="all, delete-orphan")
+    institutional_holders = relationship("InstitutionalHolders", back_populates="ticker", cascade="all, delete-orphan")
+    major_holders = relationship("MajorHolders", back_populates="ticker", cascade="all, delete-orphan")
+    mutualfund_holders = relationship("MutualFundHolders", back_populates="ticker", cascade="all, delete-orphan")
+    recommendations = relationship("Recommendations", back_populates="ticker", cascade="all, delete-orphan")
+    upgrades_downgrades = relationship("UpgradesDowngrades", back_populates="ticker", cascade="all, delete-orphan")
+
+    # __ relationships with the candle data tables __
+    candle_data_day = relationship("CandleDataDay", back_populates="ticker", cascade="all, delete-orphan")
+    candle_data_week = relationship("CandleDataWeek", back_populates="ticker", cascade="all, delete-orphan")
+    candle_data_month = relationship("CandleDataMonth", back_populates="ticker", cascade="all, delete-orphan")
+    candle_data_1_hour = relationship("CandleData1Hour", back_populates="ticker", cascade="all, delete-orphan")
+    candle_data_5_minutes = relationship("CandleData5Minutes", back_populates="ticker", cascade="all, delete-orphan")
+    candle_data_1_minute = relationship("CandleData1Minute", back_populates="ticker", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Ticker(id={self.id}, symbol={self.symbol}, company_name={self.company_name})>"
@@ -286,10 +295,10 @@ class EarningsDates(Base):
     date = Column(Date, primary_key=True)                                   # Date of the earnings report
     last_update = Column(DateTime, nullable=False, primary_key=True)        # Timestamp to track when the data was recorded
 
-    earnings_period = Column(String(20))                                    # Earnings period
-    eps_estimate = Column(Numeric)                                          # EPS estimate
-    reported_eps = Column(Numeric)                                          # Reported EPS
-    surprise_percent = Column(Numeric)                                      # Earnings surprise percentage
+    earnings_period = Column(String(20), nullable=True)                                    # Earnings period
+    eps_estimate = Column(Numeric, nullable=True)                                          # EPS estimate
+    reported_eps = Column(Numeric, nullable=True)                                          # Reported EPS
+    surprise_percent = Column(Numeric, nullable=True)                                      # Earnings surprise percentage
 
     ticker = relationship("Ticker", back_populates="earnings_dates")
 
@@ -303,14 +312,14 @@ class InfoCompanyAddress(Base):
     ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, primary_key=True)  # Foreign key reference to ticker table
     last_update = Column(DateTime, nullable=False, primary_key=True)  # Timestamp to track when the data was recorded
     
-    address1 = Column(String(100))                  # Address line 1
+    address1 = Column(String(200))                  # Address line 1
     city = Column(String(50))                       # City
     state = Column(String(50))                      # State
     zip = Column(String(20))                        # ZIP code
     country = Column(String(50))                    # Country
     phone = Column(String(20))                      # Phone number
-    website = Column(String(100))                   # Website URL
-    ir_website = Column(String(100))                # IR website
+    website = Column(String(200))                   # Website URL
+    ir_website = Column(String(200))                # IR website
 
     ticker = relationship("Ticker", back_populates="info_company_address")
 
@@ -321,17 +330,16 @@ class InfoCompanyAddress(Base):
 class InfoSectorIndustryHistory(Base):
     __tablename__ = 'info_sector_industry_history'
 
-    ticker_id = Column(Integer, ForeignKey('ticker.id'), primary_key=True, nullable=False)  # Foreign key reference to ticker table
-    start_date = Column(Date, primary_key=True, nullable=False)                             # Start date of the sector and industry validity
+    ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, primary_key=True)  # Foreign key reference to ticker table
+    last_update = Column(Date, nullable=False, primary_key=True)                            # Timestamp to track when the data was recorded
 
-    end_date = Column(Date, nullable=True)                                                  # End date of the sector and industry validity, optional if NULL (currently valid)
     sector = Column(String(100), nullable=False)                                            # Sector of the company
     industry = Column(String(100), nullable=False)                                          # Industry of the company
 
     ticker = relationship("Ticker", back_populates="info_sector_industry_history")
 
     def __repr__(self):
-        return f"<InfoSectorIndustryHistory(ticker_id={self.ticker_id}, start_date={self.start_date}, end_date={self.end_date})>"
+        return f"<InfoSectorIndustryHistory(ticker_id={self.ticker_id}, sector={self.sector}, industry={self.industry})>"
 
 
 class InfoTargetPriceAndRecommendation(Base):
@@ -384,14 +392,14 @@ class InfoCashAndFinancialRatios(Base):
 
     # __ Cash and Cash Flow Metrics __
     total_cash = Column(BigInteger)                                 # Total cash
-    total_cash_per_share = Column(Numeric(8, 4))        # Total cash per share: precision 8, scale 4
+    total_cash_per_share = Column(Numeric(10, 4))        # Total cash per share: precision 8, scale 4
     free_cashflow = Column(BigInteger)                              # Free cash flow
     operating_cashflow = Column(BigInteger)                         # Operating cash flow
 
     # __ Profitability Metrics __
     ebitda = Column(BigInteger)                                     # EBITDA
     total_revenue = Column(BigInteger)                              # Total revenue
-    revenue_per_share = Column(Numeric(7, 3))           # Revenue per share: precision 7, scale 3
+    revenue_per_share = Column(Numeric(9, 3))           # Revenue per share: precision 7, scale 3
     gross_margins = Column(Numeric(11, 10))               # Gross margins: precision 6, scale 5
     ebitda_margins = Column(Numeric(11, 10))              # EBITDA margins: precision 6, scale 5
     operating_margins = Column(Numeric(11, 10))           # Operating margins: precision 6, scale 5
@@ -407,8 +415,8 @@ class InfoCashAndFinancialRatios(Base):
     current_ratio = Column(Numeric(5, 3))               # Current ratio: precision 5, scale 3
 
     # __ Return Metrics __
-    return_on_assets = Column(Numeric(9, 8))            # Return on assets: precision 7, scale 5
-    return_on_equity = Column(Numeric(9, 8))            # Return on equity: precision 7, scale 4
+    return_on_assets = Column(Numeric(13, 10))            # Return on assets: precision 7, scale 5
+    return_on_equity = Column(Numeric(13, 10))            # Return on equity: precision 7, scale 4
 
     # __ Valuation Metrics __
     trailing_peg_ratio = Column(Numeric(6, 4))          # Trailing PEG ratio: precision 6, scale 4
@@ -427,12 +435,12 @@ class InfoMarketAndFinancialMetrics(Base):
 
     # __ static data __
     dividend_rate = Column(Numeric(10, 4), nullable=True)                       # Dividend rate
-    dividend_yield = Column(Numeric(12, 12), nullable=True)                      # Dividend yield
+    dividend_yield = Column(Numeric(13, 12), nullable=True)                      # Dividend yield
     ex_dividend_date = Column(Integer, nullable=True)                                       # Ex-dividend date
-    payout_ratio = Column(Numeric(10, 8), nullable=True)                        # Payout ratio
+    payout_ratio = Column(Numeric(11, 9), nullable=True)                        # Payout ratio
     five_year_avg_dividend_yield = Column(Numeric(10, 4), nullable=True)        # Five year average dividend yield
     trailing_annual_dividend_rate = Column(Numeric(10, 4), nullable=True)       # Trailing annual dividend rate
-    trailing_annual_dividend_yield = Column(Numeric(12, 12), nullable=True)     # Trailing annual dividend yield
+    trailing_annual_dividend_yield = Column(Numeric(13, 12), nullable=True)     # Trailing annual dividend yield
     last_dividend_value = Column(Numeric(10, 4), nullable=True)                 # Last dividend value
     last_dividend_date = Column(Integer, nullable=True)                                     # Last dividend date
 
@@ -452,11 +460,11 @@ class InfoMarketAndFinancialMetrics(Base):
     shares_short_prior_month = Column(BigInteger, nullable=True)                            # Shares short prior month
     shares_short_previous_month_date = Column(Integer, nullable=True)                       # Shares short previous month date
     date_short_interest = Column(Integer, nullable=True)                                    # Date short interest
-    shares_percent_shares_out = Column(Numeric(12, 12), nullable=True)          # Shares percent shares out
-    held_percent_insiders = Column(Numeric(12, 12), nullable=True)              # Held percent insiders
-    held_percent_institutions = Column(Numeric(12, 12), nullable=True)          # Held percent institutions
+    shares_percent_shares_out = Column(Numeric(13, 12), nullable=True)          # Shares percent shares out
+    held_percent_insiders = Column(Numeric(13, 12), nullable=True)              # Held percent insiders
+    held_percent_institutions = Column(Numeric(13, 12), nullable=True)          # Held percent institutions
     short_ratio = Column(Numeric(10, 4), nullable=True)                         # Short ratio
-    short_percent_of_float = Column(Numeric(12, 12), nullable=True)             # Short percent of float
+    short_percent_of_float = Column(Numeric(13, 12), nullable=True)             # Short percent of float
     implied_shares_outstanding = Column(BigInteger, nullable=True)                          # Implied shares outstanding
     float_shares = Column(BigInteger, nullable=True)                                        # Float shares
     shares_outstanding = Column(BigInteger, nullable=True)                                  # Shares outstanding
@@ -469,16 +477,16 @@ class InfoMarketAndFinancialMetrics(Base):
     peg_ratio = Column(Numeric(10, 4), nullable=True)                           # PEG ratio
 
     # __ Stock Splits and Adjustments __
-    last_split_factor = Column(String(10), nullable=True)                                   # Last split factor
+    last_split_factor = Column(String(20), nullable=True)                                   # Last split factor
     last_split_date = Column(Integer, nullable=True)                                        # Last split date
 
     # __ Risk Metrics __
     beta = Column(Numeric(10, 4), nullable=True)                                # Beta
 
     # __ Other Financial Ratios __
-    profit_margins = Column(Numeric(10, 8), nullable=True)                      # Profit margins
-    fifty_two_week_change = Column(Numeric(10, 9), nullable=True)               # Fifty-two week change
-    sp_fifty_two_week_change = Column(Numeric(10, 8), nullable=True)            # S&P fifty-two week change
+    profit_margins = Column(Numeric(11, 9), nullable=True)                      # Profit margins
+    fifty_two_week_change = Column(Numeric(11, 10), nullable=True)               # Fifty-two week change
+    sp_fifty_two_week_change = Column(Numeric(11, 10), nullable=True)            # S&P fifty-two week change
     last_fiscal_year_end = Column(Integer, nullable=True)                                   # Last fiscal year-end
     next_fiscal_year_end = Column(Integer, nullable=True)                                   # Next fiscal year-end
     most_recent_quarter = Column(Integer, nullable=True)                                    # Most recent quarter
@@ -497,7 +505,7 @@ class InfoGeneralStock(Base):
     last_update = Column(DateTime, nullable=False, primary_key=True)  # Timestamp to track when the data was recorded
 
     # *** from info ***
-    isin = Column(String(20), nullable=True)                                        # ISIN
+    isin = Column(String(20), nullable=True)                                        # ISIN   # TODO consider to remove it due to HTTPS request failures
     currency = Column(String(10), nullable=True)                                    # Currency used for stock values
     symbol = Column(String(10), nullable=False)                                     # Stock symbol
     exchange = Column(String(10), nullable=True)                                    # Stock exchange
@@ -548,15 +556,15 @@ class InfoTradingSession(Base):
     regular_market_volume = Column(BigInteger, nullable=True)                      # Regular market volume    - this changes during trading session
 
     # *** from basic_info ***
-    last_price = Column(Numeric(18, 14), nullable=True)         # Last traded price (more precise than current price)   - this changes during trading session
+    last_price = Column(Numeric(19, 15), nullable=True)         # Last traded price (more precise than current price)   - this changes during trading session
     last_volume = Column(BigInteger, nullable=True)                         # Last traded volume                                    - this changes during trading session
 
     # *** from basic info *** should be dynamic but are static
     ten_day_average_volume = Column(BigInteger, nullable=True)  # Ten day average volume
     three_month_average_volume = Column(BigInteger, nullable=True)  # Three-month average volume
-    year_change = Column(Numeric(18, 17), nullable=True)  # Yearly change
-    year_high = Column(Numeric(18, 14), nullable=True)  # Yearly high       - this info is not updated for more than one trading day
-    year_low = Column(Numeric(18, 14), nullable=True)  # Yearly low        - this info is not updated for more than one trading day
+    year_change = Column(Numeric(19, 18), nullable=True)  # Yearly change
+    year_high = Column(Numeric(19, 15), nullable=True)  # Yearly high       - this info is not updated for more than one trading day
+    year_low = Column(Numeric(19, 15), nullable=True)  # Yearly low        - this info is not updated for more than one trading day
 
     # *** from info ***
     current_price = Column(Numeric(10, 4), nullable=True)  # Current price of the stock
@@ -567,18 +575,18 @@ class InfoTradingSession(Base):
     day_low = Column(Numeric(10, 4), nullable=True)                         # Day's low price               - this changes during trading session
     market_cap = Column(BigInteger, nullable=True)                                        # Market capitalization       - this changes during trading session
     regular_market_open = Column(Numeric(10, 4), nullable=True)  # Regular market open
-    trailing_pe = Column(Numeric(10, 6), nullable=True)  # Trailing PE ratio
-    forward_pe = Column(Numeric(10, 6), nullable=True)  # Forward PE ratio
+    trailing_pe = Column(Numeric(11, 7), nullable=True)  # Trailing PE ratio
+    forward_pe = Column(Numeric(11, 7), nullable=True)  # Forward PE ratio
     volume = Column(BigInteger, nullable=True)  # Volume
     bid = Column(Numeric(10, 4), nullable=True)  # Bid price
     ask = Column(Numeric(10, 4), nullable=True)  # Ask price
     bid_size = Column(Integer, nullable=True)  # Bid size
     ask_size = Column(Integer, nullable=True)  # Ask size
-    price_to_sales_trailing_12months = Column(Numeric(10, 6), nullable=True)  # Price to sales ratio trailing 12 months
-    price_to_book = Column(Numeric(10, 6), nullable=True)  # Price to book
+    price_to_sales_trailing_12months = Column(Numeric(12, 8), nullable=True)  # Price to sales ratio trailing 12 months
+    price_to_book = Column(Numeric(14, 10), nullable=True)  # Price to book
 
     # *** from info *** should be dynamic but for now is static
-    fifty_day_average = Column(Numeric(10, 4), nullable=True)         # 50-day average price     - this is fixed to last close (yesterday)
+    fifty_day_average = Column(Numeric(11, 6), nullable=True)         # 50-day average price     - this is fixed to last close (yesterday)
     two_hundred_day_average = Column(Numeric(10, 5), nullable=True)   # 200-day average price    - this is fixed to last close (yesterday)
 
     # Define relationship to the Ticker class
@@ -615,11 +623,10 @@ class InsiderPurchases(Base):
 class InsiderRosterHolders(Base):
     __tablename__ = 'insider_roster_holders'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)  # Unique identifier for each insider roster record
-    ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False)  # Foreign key to ticker table
+    ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, primary_key=True)  # Foreign key to ticker table
     last_update = Column(DateTime, nullable=False, primary_key=True)  # Timestamp to track when the data was recorded
+    name = Column(String(255), nullable=False, primary_key=True)  # Name of the insider
 
-    name = Column(String(255), nullable=True)  # Name of the insider
     position = Column(String(255), nullable=True)  # Position of the insider
     url = Column(Text, nullable=True)  # URL with more information about the insider
     most_recent_transaction = Column(String(255), nullable=True)  # Most recent transaction type
@@ -627,7 +634,7 @@ class InsiderRosterHolders(Base):
     shares_owned_directly = Column(BigInteger, nullable=True)  # Number of shares owned directly
     position_direct_date = Column(DateTime, nullable=True)  # Date of direct position
     shares_owned_indirectly = Column(BigInteger, nullable=True)  # Number of shares owned indirectly
-    position_indirect_date = Column(DateTime, nullable=True)  # Date of indirect position
+    position_indirect_date = Column(Numeric(17, 5), nullable=True)  # Date of indirect position
 
     # Define relationship to the Ticker class
     ticker = relationship("Ticker", back_populates="insider_roster_holders")
@@ -640,17 +647,17 @@ class InsiderTransactions(Base):
     __tablename__ = 'insider_transactions'
 
     ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, primary_key=True)  # Foreign key to ticker table
-    insider = Column(String(255), nullable=True, primary_key=True)                          # Name of the insider
-    start_date = Column(Date, nullable=True, primary_key=True)                              # Start date of the transaction
+    insider = Column(String(255), nullable=False, primary_key=True)                          # Name of the insider
+    start_date = Column(Date, nullable=False, primary_key=True)                              # Start date of the transaction
     last_update = Column(DateTime, nullable=False, primary_key=True)                        # Timestamp to track when the data was recorded
-    shares = Column(BigInteger, nullable=True, primary_key=True)                            # Number of shares involved in the transaction
+    shares = Column(BigInteger, nullable=False, primary_key=True)                            # Number of shares involved in the transaction
     value = Column(Numeric, nullable=True, primary_key=True)                                # Value of the transaction
 
     url = Column(Text, nullable=True)                                                       # URL with more information about the transaction
     text = Column(Text, nullable=True)                                                      # Description of the transaction
     position = Column(String(255), nullable=True)                                           # Position of the insider
     transaction = Column(String(255), nullable=True)                                        # Type of transaction
-    ownership = Column(String(1), nullable=True)                                            # Ownership type (D for Direct, I for Indirect)
+    ownership = Column(String(3), nullable=True)                                            # Ownership type (D for Direct, I for Indirect)
 
     # Define relationship to the Ticker class
     ticker = relationship("Ticker", back_populates="insider_transactions")
@@ -720,7 +727,7 @@ class Recommendations(Base):
 
     ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, primary_key=True)  # Foreign key to ticker table
     last_update = Column(DateTime, nullable=False, primary_key=True)  # Timestamp to track when the data was recorded
-    period = Column(String(10), nullable=False)  # Period (e.g., "0m", "-1m")  # TODO: primary key?
+    period = Column(String(10), nullable=False, primary_key=True)  # Period (e.g., "0m", "-1m")  # TODO: primary key?
 
     strong_buy = Column(Integer, nullable=False)  # Number of strong buy recommendations
     buy = Column(Integer, nullable=False)  # Number of buy recommendations
@@ -738,7 +745,6 @@ class Recommendations(Base):
 class UpgradesDowngrades(Base):
     __tablename__ = 'upgrades_downgrades'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)  # Unique identifier for each record
     ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, primary_key=True)  # Foreign key to ticker table
     date = Column(Date, nullable=False, primary_key=True)  # Date when the upgrade/downgrade occurred
     firm = Column(String(255), nullable=False, primary_key=True)  # Name of the firm issuing the upgrade/downgrade
@@ -753,3 +759,315 @@ class UpgradesDowngrades(Base):
 
     def __repr__(self):
         return f"<UpgradesDowngrades(ticker_id={self.ticker_id}, date={self.date})>"
+
+
+class CandleDataMonth(Base):
+    __tablename__ = 'candle_data_month'
+
+    # Unique identifier for each candle
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Foreign key to the ticker table, indexed for fast queries
+    ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, index=True)
+
+    # Date of the candlestick without timezone, indexed for fast queries
+    date = Column(Date, nullable=False, index=True)
+
+    # Details of the candlestick
+    open = Column(Float, nullable=False)                         # Opening price
+    high = Column(Float, nullable=False)                         # Highest price
+    low = Column(Float, nullable=False)                          # Lowest price
+    close = Column(Float, nullable=False)                        # Closing price
+    adj_close = Column(Float, nullable=True)                     # Adjusted closing price
+    volume = Column(Float, nullable=True)
+
+    # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=True)
+
+    # Relationship to the Ticker class
+    ticker = relationship("Ticker", back_populates="candle_data_month")
+
+    # Define unique constraint and indexes to improve query performance
+    __table_args__ = (
+        UniqueConstraint('ticker_id', 'date', name='uix_candle_data_month_ticker_date'),
+        Index('ix_candle_data_month_ticker_id_date', 'ticker_id', 'date'),  # Combined index on ticker_id and date
+    )
+
+    def __repr__(self):
+        return (f"<CandleDataMonth(id={self.id}, ticker_id={self.ticker_id}, date={self.date}, open={self.open}, "
+                f"high={self.high}, low={self.low}, close={self.close}, adj_close={self.adj_close}, "
+                f"volume={self.volume}, last_update={self.last_update})>")
+
+
+class CandleDataWeek(Base):
+    __tablename__ = 'candle_data_week'
+
+    # Unique identifier for each candle
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Foreign key to the ticker table, indexed for fast queries
+    ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, index=True)
+
+    # Date of the candlestick without timezone, indexed for fast queries
+    date = Column(Date, nullable=False, index=True)
+
+    # Details of the candlestick
+    open = Column(Float, nullable=False)                         # Opening price
+    high = Column(Float, nullable=False)                         # Highest price
+    low = Column(Float, nullable=False)                          # Lowest price
+    close = Column(Float, nullable=False)                        # Closing price
+    adj_close = Column(Float, nullable=True)                     # Adjusted closing price
+    volume = Column(Float, nullable=True)
+
+    # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=True)
+
+    # Relationship to the Ticker class
+    ticker = relationship("Ticker", back_populates="candle_data_week")
+
+    # Define unique constraint and indexes to improve query performance
+    __table_args__ = (
+        UniqueConstraint('ticker_id', 'date', name='uix_candle_data_week_ticker_date'),
+        Index('ix_candle_data_week_ticker_id_date', 'ticker_id', 'date'),  # Combined index on ticker_id and date
+    )
+
+    def __repr__(self):
+        return (f"<CandleDataWeek(id={self.id}, ticker_id={self.ticker_id}, date={self.date}, open={self.open}, "
+                f"high={self.high}, low={self.low}, close={self.close}, adj_close={self.adj_close}, "
+                f"volume={self.volume}, last_update={self.last_update})>")
+
+
+class CandleDataDay(Base):
+    __tablename__ = 'candle_data_day'
+
+    # Unique identifier for each candle
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Foreign key to the ticker table, indexed for fast queries
+    ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, index=True)
+
+    # Date of the candlestick without timezone, indexed for fast queries
+    date = Column(Date, nullable=False, index=True)
+
+    # Details of the candlestick
+    open = Column(Float, nullable=False)                         # Opening price
+    high = Column(Float, nullable=False)                         # Highest price
+    low = Column(Float, nullable=False)                          # Lowest price
+    close = Column(Float, nullable=False)                        # Closing price
+    adj_close = Column(Float, nullable=True)                     # Adjusted closing price
+    volume = Column(Float, nullable=True)                        # Volume traded
+
+    # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=True)
+
+    # __ relationship to the Ticker class __
+    ticker = relationship("Ticker", back_populates="candle_data_day")
+
+    # __ relationship with CandleAnalysisDay __
+    analysis = relationship("CandleAnalysisDay", back_populates="candle_data_day", uselist=False)  # One-to-one relationship
+
+    # Define unique constraint and indexes to improve query performance
+    __table_args__ = (
+        UniqueConstraint('ticker_id', 'date', name='uix_candle_data_day_ticker_date'),
+        Index('ix_candle_data_day_ticker_id_date', 'ticker_id', 'date'),  # Combined index on ticker_id and date
+    )
+
+    def __repr__(self):
+        return (f"<CandleDataDay(id={self.id}, ticker_id={self.ticker_id}, date={self.date}, open={self.open}, "
+                f"high={self.high}, low={self.low}, close={self.close}, adj_close={self.adj_close}, "
+                f"volume={self.volume}, last_update={self.last_update})>")
+
+
+class CandleData1Hour(Base):
+    __tablename__ = 'candle_data_1_hour'
+
+    # Unique identifier for each candle
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Foreign key to the ticker table, indexed for fast queries
+    ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, index=True)
+
+    # Date and time of the candlestick with timezone, indexed for fast queries
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    # Time zone information
+    time_zone = Column(String(50), nullable=True)               # Time zone information
+
+    # Details of the candlestick
+    open = Column(Float, nullable=False)                        # Opening price
+    high = Column(Float, nullable=False)                        # Highest price
+    low = Column(Float, nullable=False)                         # Lowest price
+    close = Column(Float, nullable=False)                       # Closing price
+    adj_close = Column(Float, nullable=True)                    # Adjusted closing price
+    volume = Column(Float, nullable=True)                       # Volume traded
+
+    # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=False)
+
+    # Relationship to the Ticker class
+    ticker = relationship("Ticker", back_populates="candle_data_1_hour")
+
+    # Define unique constraint and indexes to improve query performance
+    __table_args__ = (
+        UniqueConstraint('ticker_id', 'date', name='uix_candle_data_1_hour_ticker_date'),
+        Index('ix_candle_data_1_hour_ticker_id_date', 'ticker_id', 'date'),  # Combined index on ticker_id and date
+    )
+
+    def __repr__(self):
+        return (f"<CandleData1Hour(id={self.id}, ticker_id={self.ticker_id}, date={self.date}, open={self.open}, "
+                f"high={self.high}, low={self.low}, close={self.close}, adj_close={self.adj_close}, "
+                f"volume={self.volume}, last_update={self.last_update}, time_zone={self.time_zone})>")
+
+
+class CandleData5Minutes(Base):
+    __tablename__ = 'candle_data_5_minutes'
+
+    # Unique identifier for each candle
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Foreign key to the ticker table, indexed for fast queries
+    ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, index=True)
+
+    # Date and time of the candlestick with timezone, indexed for fast queries
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    # Time zone information
+    time_zone = Column(String(50), nullable=True)
+
+    # Details of the candlestick
+    open = Column(Float, nullable=False)                         # Opening price
+    high = Column(Float, nullable=False)                         # Highest price
+    low = Column(Float, nullable=False)                          # Lowest price
+    close = Column(Float, nullable=False)                        # Closing price
+    adj_close = Column(Float, nullable=True)                     # Adjusted closing price
+    volume = Column(Float, nullable=True)
+
+    # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=False)
+
+    # Relationship to the Ticker class
+    ticker = relationship("Ticker", back_populates="candle_data_5_minutes")
+
+    # Define unique constraint and indexes to improve query performance
+    __table_args__ = (
+        UniqueConstraint('ticker_id', 'date', name='uix_candle_data_5_minutes_ticker_date'),
+        Index('ix_candle_data_5_minutes_ticker_id_date', 'ticker_id', 'date'),  # Combined index on ticker_id and date
+    )
+
+    def __repr__(self):
+        return (f"<CandleData5Minutes(id={self.id}, ticker_id={self.ticker_id}, date={self.date}, open={self.open}, "
+                f"high={self.high}, low={self.low}, close={self.close}, adj_close={self.adj_close}, "
+                f"volume={self.volume}, last_update={self.last_update}, time_zone={self.time_zone})>")
+
+
+class CandleData1Minute(Base):
+    __tablename__ = 'candle_data_1_minute'
+
+    # Unique identifier for each candle
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Foreign key to the ticker table, indexed for fast queries
+    ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, index=True)
+
+    # Date and time of the candlestick with timezone, indexed for fast queries
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    # Time zone information
+    time_zone = Column(String(50), nullable=True)
+
+    # Details of the candlestick
+    open = Column(Float, nullable=False)                         # Opening price
+    high = Column(Float, nullable=False)                         # Highest price
+    low = Column(Float, nullable=False)                          # Lowest price
+    close = Column(Float, nullable=False)                        # Closing price
+    adj_close = Column(Float, nullable=True)                     # Adjusted closing price
+    volume = Column(Float, nullable=True)
+
+    # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=False)
+
+    # Relationship to the Ticker class
+    ticker = relationship("Ticker", back_populates="candle_data_1_minute")
+
+    # Define unique constraint and indexes to improve query performance
+    __table_args__ = (
+        UniqueConstraint('ticker_id', 'date', name='uix_candle_data_1_minute_ticker_date'),
+        Index('ix_candle_data_1_minute_ticker_id_date', 'ticker_id', 'date'),  # Combined index on ticker_id and date
+    )
+
+    def __repr__(self):
+        return (f"<CandleData1Minute(id={self.id}, ticker_id={self.ticker_id}, date={self.date}, open={self.open}, "
+                f"high={self.high}, low={self.low}, close={self.close}, adj_close={self.adj_close}, "
+                f"volume={self.volume}, last_update={self.last_update}, time_zone={self.time_zone})>")
+
+
+# Candle Analysis Tables
+class CandleAnalysisDay(Base):
+    __tablename__ = 'candle_analysis_day'
+
+    candle_data_day_id = Column(Integer, ForeignKey('candle_data_day.id'), primary_key=True, index=True)  # Foreign key to CandleDataDay
+
+    prev_close = Column(Float, nullable=True)       # Previous close price
+    tr = Column(Float, nullable=True)               # True Range
+    atr = Column(Float, nullable=True)              # Average True Range
+    atr_percent = Column(Float, nullable=True)      # Average True Range as a percentage
+
+    bullish = Column(Boolean, nullable=True)        # Bullish indicator
+    body_delta = Column(Float, nullable=True)       # Difference between open and close prices
+    shadow_delta = Column(Float, nullable=True)     # Difference between high and low prices
+
+    percent_body = Column(Float, nullable=True)             # Percentage of body relative to the total candle
+    percent_upper_shadow = Column(Float, nullable=True)     # Percentage of upper shadow
+    percent_lower_shadow = Column(Float, nullable=True)     # Percentage of lower shadow
+
+    long_body = Column(Boolean, nullable=True)          # Indicator if the candle has a long body
+    shadow_imbalance = Column(Float, nullable=True)     # Imbalance between upper and lower shadows
+    shaven_head = Column(Boolean, nullable=True)        # Indicator if the candle has no upper shadow
+    shaven_bottom = Column(Boolean, nullable=True)      # Indicator if the candle has no lower shadow
+
+    doji = Column(Boolean, nullable=True)                       # Indicator if the candle is a doji
+    spinning_top = Column(Boolean, nullable=True)               # Indicator if the candle is a spinning top
+    umbrella_line = Column(Boolean, nullable=True)              # Indicator if the candle is an umbrella line
+    umbrella_line_inverted = Column(Boolean, nullable=True)     # Indicator if the candle is an inverted umbrella line
+
+    mid_body = Column(Float, nullable=True)             # Midpoint of the body of the candle
+    body_atr_percent = Column(Float, nullable=True)     # Body as a percentage of ATR
+    body2atr_percent = Column(Float, nullable=True)     # Double body as a percentage of ATR
+    long_atr_candle = Column(Boolean, nullable=True)    # Indicator if the candle is long relative to ATR
+
+    body2atr2_shadow_imbalance_ratio = Column(Float, nullable=True)     # Ratio of double body to shadow imbalance
+    long_candle_light = Column(Boolean, nullable=True)                  # Indicator if the candle is long and light
+    long_candle_bullish_light = Column(Boolean, nullable=True)          # Indicator if the candle is long, bullish, and light
+    long_candle_bearish_light = Column(Boolean, nullable=True)          # Indicator if the candle is long, bearish, and light
+
+    long_candle = Column(Boolean, nullable=True)                # Indicator if the candle is long
+    long_candle_bullish = Column(Boolean, nullable=True)        # Indicator if the candle is long and bullish
+    long_candle_bearish = Column(Boolean, nullable=True)        # Indicator if the candle is long and bearish
+
+    engulfing_bullish = Column(Boolean, nullable=True)  # Bullish engulfing pattern indicator
+    engulfing_bearish = Column(Boolean, nullable=True)  # Bearish engulfing pattern indicator
+
+    dark_cloud_cover = Column(Boolean, nullable=True)           # Dark cloud cover pattern indicator
+    dark_cloud_cover_light = Column(Boolean, nullable=True)     # Light version of dark cloud cover pattern indicator
+    piercing_pattern = Column(Boolean, nullable=True)           # Piercing pattern indicator
+    piercing_pattern_light = Column(Boolean, nullable=True)     # Light version of piercing pattern indicator
+    on_neck_pattern = Column(Boolean, nullable=True)            # On neck pattern indicator
+    in_neck_pattern = Column(Boolean, nullable=True)            # In neck pattern indicator
+    thrusting_pattern = Column(Boolean, nullable=True)          # Thrusting pattern indicator
+
+    star = Column(Boolean, nullable=True)               # Star pattern indicator
+    evening_star = Column(Boolean, nullable=True)       # Evening star pattern indicator
+    morning_star = Column(Boolean, nullable=True)       # Morning star pattern indicator
+
+    ma50 = Column(Float, nullable=True)                     # 50-day moving average
+    ma100 = Column(Float, nullable=True)                    # 100-day moving average
+    ma200 = Column(Float, nullable=True)                    # 200-day moving average
+    ma200_distance_percent = Column(Float, nullable=True)   # Distance from 200-day moving average in percentage
+
+    rsi = Column(Float, nullable=True)      # Relative Strength Index
+
+    # __ relationship to CandleDataDay
+    candle_data_day = relationship("CandleDataDay", back_populates="analysis")  # One-to-one relationship
+
+    def __repr__(self):
+        return f"<CandleAnalysisDay(candle_data_day_id={self.candle_data_day_id})>"
