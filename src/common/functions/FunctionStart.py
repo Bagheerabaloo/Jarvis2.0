@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
-from src.common.functions.Function import Function
-from src.common.telegram.TelegramPendingUser import TelegramPendingUser
+from common import Function, TelegramPendingUser
 
 
 @dataclass

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field, asdict
 from copy import deepcopy
 
-from src.common.functions.FunctionType import FunctionType
+from common import FunctionType
 
 
 @dataclass

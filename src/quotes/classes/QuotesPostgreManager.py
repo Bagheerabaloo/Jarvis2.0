@@ -5,10 +5,10 @@ from collections import OrderedDict
 
 from src.common.tools.library import class_from_args, int_timestamp_now
 from src.common.postgre.PostgreManager import PostgreManager
-from src.quotes.QuotesUser import QuotesUser
-from src.quotes.Quote import Quote
-from src.quotes.Note import Note
-from src.quotes.Tag import Tag
+from quotes import QuotesUser
+from quotes import Quote
+from quotes import Note
+from quotes import Tag
 
 
 class QuotesPostgreManager(PostgreManager):

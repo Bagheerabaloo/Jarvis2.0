@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from src.common.functions.Function import Function
+from common import Function
 
 
 @dataclass

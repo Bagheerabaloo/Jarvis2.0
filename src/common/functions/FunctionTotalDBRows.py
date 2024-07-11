@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from src.common.tools.library import to_int
 
-from src.common.functions.Function import Function
+from common import Function
 
 
 @dataclass

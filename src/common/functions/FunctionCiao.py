@@ -1,8 +1,6 @@
 from dataclasses import dataclass, field
-from src.common.telegram.TelegramBot import TelegramBot
-from src.common.telegram.TelegramChat import TelegramChat
-from src.common.functions.Function import Function
-from src.common.telegram.TelegramFunction import TelegramFunction
+
+from common import Function
 
 
 @dataclass

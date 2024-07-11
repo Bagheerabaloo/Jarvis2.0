@@ -5,9 +5,9 @@ from src.common.tools.library import get_human_date_from_timestamp
 from src.common.functions.Function import Function
 from src.common.postgre.PostgreManager import PostgreManager
 from src.common.telegram.TelegramUser import TelegramUser
-from src.quotes.QuotesUser import QuotesUser
-from src.quotes.QuotesPostgreManager import QuotesPostgreManager
-from src.quotes.Note import Note
+from quotes import QuotesUser
+from quotes import QuotesPostgreManager
+from quotes import Note
 
 
 @dataclass

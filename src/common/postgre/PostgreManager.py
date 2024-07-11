@@ -6,11 +6,9 @@ import json
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 from src.common.tools.logging_class import LoggerObj
-from src.common.tools.library import get_exception, print_exception, int_timestamp_now, class_from_args
-from src.common.telegram.TelegramUser import TelegramUser
-from src.common.telegram.TelegramPendingUser import TelegramPendingUser
-from src.common.telegram.TelegramChat import TelegramChat
-from src.common.telegram.TelegramFunction import TelegramFunction
+
+from common import get_exception, print_exception, int_timestamp_now, class_from_args
+from common import TelegramUser, TelegramPendingUser, TelegramChat, TelegramFunction
 
 
 @dataclass

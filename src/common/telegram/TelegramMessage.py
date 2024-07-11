@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, asdict
-from src.common.telegram.TelegramMessageType import TelegramMessageType
+from common import TelegramMessageType
 
 
 # TODO: move to sqlAlchemy

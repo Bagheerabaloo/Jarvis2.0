@@ -25,7 +25,7 @@ from src.common.functions.FunctionTotalDBRows import FunctionTotalDBRows
 from src.quotes.functions.FunctionBack import FunctionBack
 from src.quotes.functions.FunctionQuotesNewUser import FunctionQuotesNewUser
 from src.quotes.functions.FunctionRandomQuote import FunctionRandomQuote
-from src.quotes.functions.FunctionShowQuotes import FunctionShowQuote
+from src.quotes.functions.FunctionShowQuotes import FunctionShowQuotes
 from src.quotes.functions.FunctionNewQuote import FunctionNewQuote
 from src.quotes.functions.FunctionNewNote import FunctionNewNote
 from src.quotes.functions.FunctionShowNotes import FunctionShowNotes
@@ -36,9 +36,9 @@ from src.quotes.functions.FunctionBook import FunctionBook
 from src.common.file_manager.FileManager import FileManager
 from src.common.postgre.PostgreManager import PostgreManager
 from src.common.tools.library import run_main, get_environ, int_timestamp_now, class_from_args, to_int, timestamp2date, build_eta
-from src.quotes.QuotesUser import QuotesUser
-from src.quotes.QuotesPostgreManager import QuotesPostgreManager
-from src.quotes.Note import Note
+from quotes import QuotesUser
+from quotes import QuotesPostgreManager
+from quotes import Note
 
 # import yaml
 # from src.quotes.functions import FunctionBack, FunctionQuotesNewUser, FunctionRandomQuote, FunctionShowQuotes, FunctionNewQuote, FunctionNewNote, FunctionShowNotes, FunctionDailyQuote, FunctionDailyBook, FunctionQuotesSettings
@@ -328,7 +328,7 @@ def main():
         Command(alias=["rows"], admin=True, function=FunctionTotalDBRows),
         Command(alias=["start"], admin=False, function=FunctionStart),
         Command(alias=["quote"], admin=False, function=FunctionRandomQuote),
-        Command(alias=["showQuotes"], admin=False, function=FunctionShowQuote),
+        Command(alias=["showQuotes"], admin=False, function=FunctionShowQuotes),
         Command(alias=["newQuote"], admin=True, function=FunctionNewQuote),
         Command(alias=["note"], admin=True, function=FunctionNewNote),
         Command(alias=["showNotes"], admin=False, function=FunctionShowNotes),

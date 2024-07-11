@@ -126,7 +126,10 @@ def main():
 
     # __ update all tickers __
     for symbol in symbols:
-        update_ticker(symbol=symbol, session=session)
+        try:
+            update_ticker(symbol=symbol, session=session)
+        except:
+            pass
 
     end_time = time()
     total_time = seconds_to_time(end_time - start_time)

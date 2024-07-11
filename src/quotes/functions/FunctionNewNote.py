@@ -5,9 +5,9 @@ from typing import List, Type
 from src.common.tools.library import class_from_args, int_timestamp_now
 from src.common.functions.Function import Function
 from src.common.postgre.PostgreManager import PostgreManager
-from src.quotes.QuotesUser import QuotesUser
+from quotes import QuotesUser
 from src.quotes.functions.QuotesFunction import QuotesFunction
-from src.quotes.Note import Note
+from quotes import Note
 
 
 @dataclass

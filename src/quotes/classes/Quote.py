@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Type, Optional
-from src.quotes.Tag import Tag
+from quotes import Tag
 
 
 @dataclass

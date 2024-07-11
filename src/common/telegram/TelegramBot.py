@@ -6,13 +6,13 @@ from queue import Queue
 from time import time, sleep
 from threading import Thread
 
-from src.common.telegram.TelegramUser import TelegramUser
-from src.common.telegram.TelegramChat import TelegramChat
-from src.common.telegram.TelegramMessage import TelegramMessage
-from src.common.telegram.TelegramMessageType import TelegramMessageType
+from common import TelegramUser
+from common import TelegramChat
+from common import TelegramMessage
+from common import TelegramMessageType
 
 # TODO: create new files in common package
-from src.common.tools.library import print_exception, get_exception
+from common import print_exception, get_exception
 # from src.Tools.logging_class import LoggerObj
 
 

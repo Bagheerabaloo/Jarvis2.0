@@ -4,12 +4,12 @@ from typing import List, Type
 
 from src.common.functions.Function import Function
 from src.common.postgre.PostgreManager import PostgreManager
-from src.quotes.QuotesUser import QuotesUser
-from src.quotes.functions.QuotesFunction import QuotesFunction
+from quotes import QuotesUser
+from quotes import QuotesFunction
 
 
 @dataclass
-class FunctionShowQuote(QuotesFunction):
+class FunctionShowQuotes(QuotesFunction):
     name: str = 'show_quotes'
     # quotes_ids: List[dict] = field(default_factory=lambda: [])
     # index: int = 0

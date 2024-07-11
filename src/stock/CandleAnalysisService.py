@@ -106,6 +106,10 @@ class CandleAnalysisService:
         candle_data = self.add_local_max(candles=candle_data, window=27)
         candle_data = self.add_local_max(candles=candle_data, window=51)
         candle_data = self.add_local_max(candles=candle_data, window=101)
+        candle_data = self.add_local_min(candles=candle_data, window=13)
+        candle_data = self.add_local_min(candles=candle_data, window=27)
+        candle_data = self.add_local_min(candles=candle_data, window=51)
+        candle_data = self.add_local_min(candles=candle_data, window=101)
 
         candle_data = candle_data.iloc[-1000:].reset_index(drop=True)
         candle_plot = CandlePlot(
@@ -911,6 +915,36 @@ class CandleAnalysisService:
 
         # Drop the temporary rolling_max column
         candles = candles.drop(columns=['rolling_max'])
+
+        return candles
+
+    @staticmethod
+    def add_local_min(candles: pd.DataFrame, window: int) -> pd.DataFrame:
+        """
+        Add a column 'local_min' to the DataFrame indicating local minima.
+
+        Parameters:
+        candles (pd.DataFrame): DataFrame with a 'low' column
+        window (int): Size of the rolling window (must be odd)
+
+        Returns:
+        pd.DataFrame: DataFrame with an additional 'local_min' column
+        """
+        # Ensure the window size is odd, if not, round up to the next odd number
+        if window % 2 == 0:
+            window += 1
+
+        # Apply a rolling window to find local minima
+        candles['rolling_min'] = candles['Low'].rolling(window=window, center=True).min()
+
+        # Identify local minima where the original low value is equal to the rolling min
+        candles[f'local_min_{window}'] = candles['Low'] == candles['rolling_min']
+
+        # Shift the rolling min results backwards to avoid using future information
+        candles[f'shifted_local_min_{window}'] = candles[f'local_min_{window}'].shift(window // 2)
+
+        # Drop the temporary rolling_min column
+        candles = candles.drop(columns=['rolling_min'])
 
         return candles
 

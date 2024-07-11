@@ -7,8 +7,8 @@ from src.common.postgre.PostgreManager import PostgreManager
 from src.common.telegram.TelegramChat import TelegramChat
 from src.common.telegram.TelegramUser import TelegramUser
 from src.common.functions.FunctionAppNewUser import FunctionAppNewUser
-from src.quotes.QuotesUser import QuotesUser
-from src.quotes.functions.QuotesFunction import QuotesFunction
+from quotes import QuotesUser
+from quotes import QuotesFunction
 
 
 @dataclass

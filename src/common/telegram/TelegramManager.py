@@ -7,19 +7,19 @@ from threading import Thread
 import logging
 import asyncio
 
-from src.common.Command import Command
-from src.common.functions.Function import Function
-from src.common.functions.FunctionSendCallback import FunctionSendCallback
-from src.common.functions.FunctionStart import FunctionStart
-from src.common.telegram.TelegramUser import TelegramUser
-from src.common.telegram.TelegramChat import TelegramChat
-from src.common.telegram.TelegramMessage import TelegramMessage
-from src.common.telegram.TelegramMessageType import TelegramMessageType
-from src.common.telegram.TelegramBot import TelegramBot
-from src.common.postgre.PostgreManager import PostgreManager
+from common import Command
+from common import Function
+from common import FunctionSendCallback
+from common import FunctionStart
+from common import TelegramUser
+from common import TelegramChat
+from common import TelegramMessage
+from common import TelegramMessageType
+from common import TelegramBot
+from common import PostgreManager
 
 # TODO: create new files in common package
-from src.common.tools.library import print_exception, get_exception, int_timestamp_now
+from common import print_exception, get_exception, int_timestamp_now
 # from src.Tools.logging_class import LoggerObj
 LOGGER = logging.getLogger(__name__)
 

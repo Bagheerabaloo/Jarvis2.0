@@ -186,6 +186,22 @@ class CandlePlot:
                         alpha=0.5,
                         linewidth=linewidth)
 
+    def plot_support(self, ax, i):
+        for window in [13, 27, 51, 101]:
+            linewidth = 0.5 if window == 13 else 1 if window == 27 else 1.5 if window == 51 else 2
+            vertical_lines = self.candle_data[self.candle_data[f'shifted_local_min_{window}']]['Session'].values.tolist()
+            vertical_lines = [x - window // 2 for x in vertical_lines if self.candle_data.iloc[window // 2]['Session'] <= x <= self.candle_data.iloc[i]['Session']]
+            if window in [13, 27, 51] and len(vertical_lines) > 1:
+                vertical_lines = [vertical_lines[-1]]
+            for x in vertical_lines:
+                index = self.candle_data[self.candle_data['Session'] == x].index[0]
+                ax.plot([self.candle_data.iloc[index][self.column_to_use], self.candle_data.iloc[i][self.column_to_use]],
+                        [self.candle_data.iloc[index]['Low'], self.candle_data.iloc[index]['Low']],
+                        color='red' if self.candle_data.iloc[i]['Close'] < self.candle_data.iloc[index]['Low'] else 'green',
+                        linestyle='--',
+                        alpha=0.5,
+                        linewidth=linewidth)
+
     def plot_sens_channel(self, intervals, ax, i, linewidth, not_is_interval):
         previous_interval = next((interval for interval in reversed(intervals) if interval['index_stop'] <= i - 1), {'index_stop': 0, 'trend': self.candle_data['Trend'].iloc[0]})
         current_interval = next((interval for interval in reversed(intervals) if interval['index_stop'] <= i), {'index_stop': 0, 'trend': self.candle_data['Trend'].iloc[0]})
@@ -297,6 +313,7 @@ class CandlePlot:
             # __ add local maxima __
             # self.plot_local_max(ax1, i) if plot_local_max else None
             self.plot_resistance(ax1, i) if plot_local_max else None
+            self.plot_support(ax1, i) if plot_local_max else None
 
             # __ add sensitivity channel __
             self.plot_sens_channel(intervals, ax1, i, linewidth, not_is_interval) if plot_sensitivity_channel else None

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, asdict
-from src.common.telegram.TelegramFunction import TelegramFunction
+from common import TelegramFunction
 
 
 @dataclass
