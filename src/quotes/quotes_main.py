@@ -7,38 +7,16 @@ from threading import Timer
 from random import choice, shuffle
 from typing import List, Type
 
-from src.common.Command import Command
-from src.common.telegram.TelegramMessageType import TelegramMessageType
-from src.common.telegram.TelegramManager import TelegramManager
-from src.common.telegram.TelegramMessage import TelegramMessage
-from src.common.telegram.TelegramUser import TelegramUser
-from src.common.telegram.TelegramChat import TelegramChat
+from common import Command, FileManager, PostgreManager
+from common import TelegramManager, TelegramUser, TelegramChat, TelegramMessage, TelegramMessageType
+from common import Function, FunctionCiao, FunctionCallback, FunctionProcess, FunctionStart
+from common import FunctionHelp, FunctionTotalDBRows
+from common import run_main, get_environ, int_timestamp_now, class_from_args, to_int, timestamp2date, build_eta
 
-from src.common.functions.Function import Function
-from src.common.functions.FunctionCiao import FunctionCiao
-from src.common.functions.FunctionCallback import FunctionCallback
-from src.common.functions.FunctionProcess import FunctionProcess
-from src.common.functions.FunctionStart import FunctionStart
-from src.common.functions.FunctionHelp import FunctionHelp
-from src.common.functions.FunctionTotalDBRows import FunctionTotalDBRows
-
-from src.quotes.functions.FunctionBack import FunctionBack
-from src.quotes.functions.FunctionQuotesNewUser import FunctionQuotesNewUser
-from src.quotes.functions.FunctionRandomQuote import FunctionRandomQuote
-from src.quotes.functions.FunctionShowQuotes import FunctionShowQuotes
-from src.quotes.functions.FunctionNewQuote import FunctionNewQuote
-from src.quotes.functions.FunctionNewNote import FunctionNewNote
-from src.quotes.functions.FunctionShowNotes import FunctionShowNotes
-from src.quotes.functions.FunctionDailyQuote import FunctionDailyQuote
-from src.quotes.functions.FunctionQuotesSettings import FunctionQuotesSettings
-from src.quotes.functions.FunctionBook import FunctionBook
-
-from src.common.file_manager.FileManager import FileManager
-from src.common.postgre.PostgreManager import PostgreManager
-from src.common.tools.library import run_main, get_environ, int_timestamp_now, class_from_args, to_int, timestamp2date, build_eta
-from quotes import QuotesUser
-from quotes import QuotesPostgreManager
-from quotes import Note
+from quotes import QuotesUser, QuotesPostgreManager, Note
+from quotes import FunctionBack, FunctionQuotesNewUser, FunctionRandomQuote, FunctionShowQuotes
+from quotes import FunctionNewQuote, FunctionNewNote, FunctionShowNotes, FunctionDailyQuote
+from quotes import FunctionQuotesSettings, FunctionBook
 
 # import yaml
 # from src.quotes.functions import FunctionBack, FunctionQuotesNewUser, FunctionRandomQuote, FunctionShowQuotes, FunctionNewQuote, FunctionNewNote, FunctionShowNotes, FunctionDailyQuote, FunctionDailyBook, FunctionQuotesSettings
@@ -285,7 +263,6 @@ class Quotes(TelegramManager):
 
 
 def main():
-
     # __ whether it's running on Heroku or local
     os_environ = get_environ() == 'HEROKU'
 

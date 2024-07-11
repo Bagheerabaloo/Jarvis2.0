@@ -32,3 +32,4 @@ from .telegram.TelegramUser import TelegramUser
 # Import methods from library
 from src.common.tools.library import print_exception, get_exception, int_timestamp_now, class_from_args
 from src.common.tools.library import file_read, file_write
+from src.common.tools.library import run_main, get_environ, to_int, timestamp2date, build_eta
