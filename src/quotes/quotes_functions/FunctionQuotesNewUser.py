@@ -1,14 +1,8 @@
 from dataclasses import dataclass, field
-from random import choice, shuffle
-from typing import List, Type
 
-from src.common.functions.Function import Function
-from src.common.postgre.PostgreManager import PostgreManager
-from src.common.telegram.TelegramChat import TelegramChat
-from src.common.telegram.TelegramUser import TelegramUser
+from common.telegram_manager import TelegramUser
 from src.common.functions.FunctionAppNewUser import FunctionAppNewUser
-from quotes import QuotesUser
-from quotes import QuotesFunction
+from quotes.quotes_functions.QuotesFunction import QuotesFunction
 
 
 @dataclass

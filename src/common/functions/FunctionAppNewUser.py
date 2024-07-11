@@ -2,7 +2,9 @@ from dataclasses import dataclass, field
 from random import choice, shuffle
 from typing import List, Type
 
-from common.functions.Function import Function, PostgreManager, TelegramChat, TelegramUser
+from src.common.functions.Function import Function
+from src.common.postgre.PostgreManager import PostgreManager
+from src.common.telegram_manager.TelegramManager import TelegramChat, TelegramUser
 
 
 @dataclass

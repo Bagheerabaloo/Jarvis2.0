@@ -1,13 +1,13 @@
 from dataclasses import dataclass, field
 from random import choice, shuffle
 
-from src.common.tools.library import get_human_date_from_timestamp
-from src.common.functions.Function import Function
+from common.tools import get_human_date_from_timestamp
+from common.functions.Function import Function
 from src.common.postgre.PostgreManager import PostgreManager
-from src.common.telegram.TelegramUser import TelegramUser
-from quotes import QuotesUser
-from quotes import QuotesPostgreManager
-from quotes import Note
+from common.telegram_manager.TelegramManager import TelegramUser
+from quotes.classes.QuotesUser import QuotesUser
+from quotes.classes.QuotesPostgreManager import QuotesPostgreManager
+from quotes.classes.Note import Note
 
 
 @dataclass

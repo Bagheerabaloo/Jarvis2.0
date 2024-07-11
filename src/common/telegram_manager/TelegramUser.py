@@ -1,23 +1,20 @@
 from dataclasses import dataclass, field, asdict
-from common import TelegramMessageType
 
 
-# TODO: move to sqlAlchemy
 @dataclass
-class TelegramMessage:
-    message_type: TelegramMessageType
-    chat_id: int
-    message_id: int
-    date: int
-    update_id: int
-    from_id: int
-    from_name: str
-    from_username: str
-    chat_last_name: str
+class TelegramUser:
+    # __ Static data __
+    telegram_id: int  # user_id
+    name: str
+    username: str = None
+    is_admin: bool = False
 
-    text: str = None
-    callback_id: int = None
-    data: str = None
+    # __ Flags and settings __
+    settings: dict = field(default_factory=lambda: {})
+    auth: bool = False  # Authentication Status
+
+    last_chat_id: int = None
+    # self.last_message_id = None
 
     def to_dict(self):
         result = asdict(self)
@@ -30,11 +27,13 @@ class TelegramMessage:
     def from_dict(cls, data):
         return cls(**data)
 
-    def get_from(self):
-        return {k: v for k, v in self.__dict__.items() if k.startswith('from')}
+    def check_auth(self, strict=False):  # TODO: add function id
+        return (self.auth and not strict) or self.auth_function
 
-    def last_message(self):
-        return self.text if self.text else self.data
+
+if __name__ == '__main__':
+    pass
+
 
 """ New Chat
 {'update_id': 879617908, 

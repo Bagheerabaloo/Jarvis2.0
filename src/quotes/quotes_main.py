@@ -1,22 +1,30 @@
-import asyncio
-import pytz
-from dataclasses import dataclass, field
-from time import time, sleep
-from datetime import datetime
-from threading import Timer
-from random import choice, shuffle
-from typing import List, Type
+from common.tools import run_main, get_environ
+from common.file_manager.FileManager import FileManager
 
-from common import Command, FileManager, PostgreManager
-from common import TelegramManager, TelegramUser, TelegramChat, TelegramMessage, TelegramMessageType
-from common import Function, FunctionCiao, FunctionCallback, FunctionProcess, FunctionStart
-from common import FunctionHelp, FunctionTotalDBRows
-from common import run_main, get_environ, int_timestamp_now, class_from_args, to_int, timestamp2date, build_eta
+from common.telegram_manager.Command import Command
+from common.telegram_manager.TelegramUser import TelegramUser
+from common.telegram_manager.TelegramChat import TelegramChat
 
-from quotes import QuotesUser, QuotesPostgreManager, Note
-from quotes import FunctionBack, FunctionQuotesNewUser, FunctionRandomQuote, FunctionShowQuotes
-from quotes import FunctionNewQuote, FunctionNewNote, FunctionShowNotes, FunctionDailyQuote
-from quotes import FunctionQuotesSettings, FunctionBook
+from common.functions.FunctionCiao import FunctionCiao
+from common.functions.FunctionCallback import FunctionCallback
+from common.functions.FunctionProcess import FunctionProcess
+from common.functions.FunctionStart import FunctionStart
+from common.functions.FunctionHelp import FunctionHelp
+from common.functions.FunctionTotalDBRows import FunctionTotalDBRows
+
+from quotes.classes.QuotesPostgreManager import QuotesPostgreManager
+from quotes.quotes_functions.FunctionBack import FunctionBack
+from quotes.quotes_functions.FunctionQuotesNewUser import FunctionQuotesNewUser
+from quotes.quotes_functions.FunctionRandomQuote import FunctionRandomQuote
+from quotes.quotes_functions.FunctionShowQuotes import FunctionShowQuotes
+from quotes.quotes_functions.FunctionNewQuote import FunctionNewQuote
+from quotes.quotes_functions.FunctionNewNote import FunctionNewNote
+from quotes.quotes_functions.FunctionShowNotes import FunctionShowNotes
+from quotes.quotes_functions.FunctionDailyQuote import FunctionDailyQuote
+from quotes.quotes_functions.FunctionQuotesSettings import FunctionQuotesSettings
+from quotes.quotes_functions.FunctionBook import FunctionBook
+
+from quotes import QuotesApp
 
 # import yaml
 # from src.quotes.functions import FunctionBack, FunctionQuotesNewUser, FunctionRandomQuote, FunctionShowQuotes, FunctionNewQuote, FunctionNewNote, FunctionShowNotes, FunctionDailyQuote, FunctionDailyBook, FunctionQuotesSettings
@@ -31,235 +39,6 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 # config_path = Path(__file__).parent.parent.parent.joinpath('resources', 'logger.conf.yaml')
 # log_conf = setup_logging(config_path=str(config_path), use_multiprocessing=True)
 # LOGGER = logging.getLogger()
-
-
-@dataclass
-class Quotes(TelegramManager):
-    postgre_manager: QuotesPostgreManager = field(default=None)
-    daily_quote: bool = True
-    daily_book: bool = True
-    name: str = "Quotes"
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.quotes_users = self.postgre_manager.get_quotes_users()
-        self.__init_quote_timer() if self.daily_quote else None
-        self.__init_book_timer() if self.daily_book else None
-
-    @property
-    def app_users(self):
-        return self.quotes_users
-
-    """ ###### OVERRIDING FUNCTIONS ##### """
-    def instantiate_function(self, function,
-                             chat: TelegramChat,
-                             message: TelegramMessage,
-                             is_new: bool,
-                             function_id: int,
-                             user_x: TelegramUser) -> Function:
-        # print(isinstance(function.__class__.__name__, Quotes))
-        kwargs = {"bot": self.telegram_bot,
-                  "chat": chat,
-                  "message": message,
-                  "function_id": function_id,
-                  "is_new": is_new,
-                  "postgre_manager": self.postgre_manager}
-        if "quotes_user" in dir(function):
-            kwargs.update({"quotes_user": [x for x in self.quotes_users if x.telegram_id == user_x.telegram_id][0]})
-
-        return function(**kwargs)
-
-    async def call_message(self,
-                           user_x: QuotesUser,
-                           message: TelegramMessage,
-                           chat: TelegramChat,
-                           txt: str):
-        if '\nby ' in message.text:
-            quote, author = self.handle_new_quote(text=message.text)
-            settings = {"quote": quote,
-                        "author": author}
-            return await self.execute_command(user_x=user_x,
-                                              command="newQuote",
-                                              message=message,
-                                              chat=chat,
-                                              initial_settings=settings,
-                                              initial_state=4)
-
-        elif user_x.is_admin:
-            settings = {"note": message.text}
-            return await self.execute_command(user_x=user_x,
-                                              command="note",
-                                              message=message,
-                                              chat=chat,
-                                              initial_settings=settings)
-
-        await self.telegram_bot.send_message(chat_id=message.chat_id, text='No command running')
-        return False
-
-    async def handle_app_new_user(self,
-                                  admin_user: QuotesUser,
-                                  admin_chat: TelegramChat,
-                                  new_telegram_user: TelegramUser,
-                                  new_telegram_chat: TelegramChat):
-
-        message = self._build_new_telegram_message(chat=admin_chat, text='appNewUser')
-        admin_chat.new_message(telegram_message=message)
-        settings = {"new_user": new_telegram_user,
-                    "new_chat": new_telegram_chat,
-                    "app": self.name}
-        return await self.execute_command(user_x=admin_user,
-                                          command=message.text,
-                                          message=message,
-                                          chat=admin_chat,
-                                          initial_settings=settings)
-
-    def app_update_users(self):
-        print('\n### refreshing quotes users ###\n')
-        all_users = self.postgre_manager.get_quotes_users()
-        diff_users = [x for x in all_users if x.telegram_id not in [x.telegram_id for x in self.app_users]]
-        print(diff_users)
-        self.quotes_users += diff_users
-
-    @staticmethod
-    def handle_new_quote(text: str) -> (str, str):
-        txt = text.split('by ')
-        author = txt.pop().replace('_', ' ')
-
-        txt = 'by '.join(txt) if len(txt) > 1 else txt[0]
-
-        if 'Forwarded' in txt:
-            txt = txt.split('\n')
-            txt.pop(0)
-            quote = '\n'.join(txt)
-        else:
-            quote = txt
-
-        while quote[-1] == '\n':
-            quote = quote[:-1]
-
-        return quote, author
-
-    """ ###### ROUTINES ##### """
-    def __init_quote_timer(self):
-        dt = datetime.now(pytz.timezone('Europe/Rome'))
-        eta = ((9 - dt.hour - 1) * 60 * 60) + ((60 - dt.minute - 1) * 60) + (60 - dt.second)
-
-        if eta < 0:
-            eta += 24*60*60
-
-        print('Daily Quote set in ' + str(to_int(eta/3600)) + 'h:' + str(to_int((eta % 3600)/60)) + 'm:' + str(to_int(((eta % 3600) % 60))) + 's:')
-
-        self.quote_timer = Timer(eta, self.__asyncio_daily_quote)
-        self.quote_timer.name = 'Daily Quote'
-        self.quote_timer.start()
-        self.daily_quote = True
-        # self.quotes_settings['daily_quote'] = True
-
-    def __asyncio_daily_quote(self):
-        asyncio.run(self.__daily_quote())
-
-    async def __daily_quote(self):
-        quotes = self.postgre_manager.get_last_random_quotes()
-
-        quote = choice(quotes)
-        self.postgre_manager.update_quote_by_quote_id(quote_id=quote.quote_id, set_params={'last_random_tme': to_int(time())})
-
-        print(f"Start sending daily quotes at {timestamp2date(time())}")
-        for user in self.quotes_users:
-            if user.daily_quotes:
-                quote_in_language = self.postgre_manager.get_quote_in_language(quote=quote, user=user)
-                author = quote.author.replace('_', ' ')
-                text = f"*Quote of the day*\n\n{quote_in_language}\n\n_{author}_"
-
-                chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
-                message = self._build_new_telegram_message(chat=chat, text='dailyQuote')
-                settings = {"text": text}
-                await self.execute_command(user_x=user,
-                                           command=message.text,
-                                           message=message,
-                                           chat=chat,
-                                           initial_settings=settings)
-
-            sleep(0.2)
-        print(f"Sending daily quotes completed at {timestamp2date(time())}")
-
-    def __init_book_timer(self):
-        eta_1 = build_eta(target_hour=12, target_minute=00)
-        eta_2 = build_eta(target_hour=18, target_minute=00)
-        # eta_2 = 20
-
-        print('Next Note 1 set in ' + str(to_int(eta_1/3600)) + 'h:' + str(to_int((eta_1 % 3600)/60)) + 'm:' + str(to_int(((eta_1 % 3600) % 60))) + 's:')
-        print('Next Note 2 set in ' + str(to_int(eta_2/3600)) + 'h:' + str(to_int((eta_2 % 3600)/60)) + 'm:' + str(to_int(((eta_2 % 3600) % 60))) + 's:')
-
-        self.note_timer_eta_1 = Timer(eta_1, self.__asyncio_daily_book)
-        self.note_timer_eta_1.name = 'Next Note 1'
-        self.note_timer_eta_1.start()
-
-        self.note_timer_eta_2 = Timer(eta_2, self.__asyncio_daily_book)
-        self.note_timer_eta_2.name = 'Next Note 2'
-        self.note_timer_eta_2.start()
-
-    def __asyncio_daily_book(self):
-        asyncio.run(self.__daily_book())
-
-    async def __daily_book(self):
-        notes = self.postgre_manager.get_daily_notes()
-        if len(notes) == 0:
-            return None
-
-        note = choice(notes)
-        book = note.book
-        notes: List[Note] = self.postgre_manager.get_notes_with_tags_by_book(book=book)
-        index = next((index for (index, d) in enumerate(notes) if d.note_id == note.note_id), None)
-        self.postgre_manager.update_note_by_note_id(note_id=note.note_id, set_params={'last_random_time': to_int(time())})
-
-        print(f"Start sending daily book notes at {timestamp2date(time())}")
-        for user in self.quotes_users:
-            if user.daily_book:
-                function = await self.get_function_by_alias(alias='showNotes', chat_id=user.telegram_id, user_x=user)
-                if not function:
-                    continue
-                chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
-                message = self._build_new_telegram_message(chat=chat, text='showNotes')
-                settings = {"note": note.note,
-                            "book": note.book,
-                            "index": index,
-                            "notes": notes,
-                            "is_book_note": True}
-                await self.execute_command(user_x=user,
-                                           command=message.text,
-                                           message=message,
-                                           chat=chat,
-                                           initial_settings=settings,
-                                           initial_state=2)
-
-            sleep(0.2)
-        print(f"Sending daily book notes completed at {timestamp2date(time())}")
-
-    """ ###### CLOSING APP ##### """
-    def close(self):
-        self.__close_quote_timer()
-        self.__close_note_timer()
-        self.close_telegram_manager()
-
-    def __close_quote_timer(self):
-        try:
-            self.quote_timer.cancel()
-        except:
-            print('unable to close quote timer')
-            pass
-
-    def __close_note_timer(self):
-        try:
-            self.note_timer_eta_1.cancel()
-        except:
-            print('unable to close note timer eta 1')
-            pass
-        try:
-            self.note_timer_eta_2.cancel()
-        except:
-            print('unable to close note timer eta 2')
-            pass
 
 
 def main():
@@ -315,11 +94,11 @@ def main():
         Command(alias=["dailyQuote"], admin=False, function=FunctionDailyQuote, restricted=True),
     ]
 
-    quotes = Quotes(token=token,
-                    users=telegram_users,
-                    chats=telegram_chats,
-                    commands=commands,
-                    postgre_manager=postgre_manager)
+    quotes = QuotesApp(token=token,
+                       users=telegram_users,
+                       chats=telegram_chats,
+                       commands=commands,
+                       postgre_manager=postgre_manager)
     quotes.start()
     run_main(app=quotes)
 

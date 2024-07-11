@@ -1,40 +1,14 @@
-from dataclasses import dataclass, field, asdict
-from common import TelegramFunction
+from dataclasses import dataclass, field
 
 
 @dataclass
-class TelegramUser:
-    # __ Static data __
+class TelegramPendingUser:
     telegram_id: int  # user_id
-    name: str
+    approved: bool
+    banned: bool
+    app: str
+    name: str = None
     username: str = None
-    is_admin: bool = False
-
-    # __ Flags and settings __
-    settings: dict = field(default_factory=lambda: {})
-    auth: bool = False  # Authentication Status
-
-    last_chat_id: int = None
-    # self.last_message_id = None
-
-    def to_dict(self):
-        result = asdict(self)
-        for key, value in result.items():
-            if hasattr(value, 'to_dict'):
-                result[key] = value.to_dict()
-        return result
-
-    @classmethod
-    def from_dict(cls, data):
-        return cls(**data)
-
-    def check_auth(self, strict=False):  # TODO: add function id
-        return (self.auth and not strict) or self.auth_function
-
-
-if __name__ == '__main__':
-    pass
-
 
 """ New Chat
 {'update_id': 879617908, 

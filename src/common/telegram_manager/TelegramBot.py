@@ -1,18 +1,12 @@
 import asyncio
 import telegram
 from dataclasses import dataclass, field
-from typing import List
-from queue import Queue
-from time import time, sleep
-from threading import Thread
 
-from common import TelegramUser
-from common import TelegramChat
-from common import TelegramMessage
-from common import TelegramMessageType
+from common.telegram_manager.TelegramUser import TelegramUser
+from common.telegram_manager.TelegramChat import TelegramChat
 
 # TODO: create new files in common package
-from common import print_exception, get_exception
+from common.tools import print_exception, get_exception
 # from src.Tools.logging_class import LoggerObj
 
 

@@ -1,14 +1,7 @@
 from dataclasses import dataclass, field
-from random import choice, shuffle
-from typing import List, Type
 
-from src.common.tools.library import class_from_args, int_timestamp_now
-from src.common.functions.Function import Function
-from src.common.postgre.PostgreManager import PostgreManager
-from quotes import QuotesUser
-from quotes import QuotesFunction
-from quotes import FunctionShowNotes
-from quotes import Note
+from quotes.quotes_functions.QuotesFunction import QuotesFunction
+from quotes.quotes_functions.FunctionShowNotes import FunctionShowNotes
 
 
 @dataclass

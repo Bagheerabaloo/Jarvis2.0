@@ -6,7 +6,7 @@ from threading import Thread, active_count
 from threading import enumerate as thread_enumerate
 from src.common.tools.library import to_int
 
-from common import Function
+from src.common.functions.Function import Function
 
 
 @dataclass

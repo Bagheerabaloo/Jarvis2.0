@@ -2,7 +2,7 @@ import os
 import json
 from pathlib import Path
 
-from common import file_read, file_write, get_exception, print_exception
+from src.common.tools.library import file_read, file_write, get_exception, print_exception
 from src.common.tools.logging_class import LoggerObj
 
 
@@ -68,6 +68,9 @@ class FileManager:
 
     def get_admin_chat(self, database_key='ADMIN_CHAT'):
         return self.load(key=database_key)
+
+    def get_absolut_path(self):
+        return config_path.joinpath(self.folder)
 
 
 if __name__ == '__main__':

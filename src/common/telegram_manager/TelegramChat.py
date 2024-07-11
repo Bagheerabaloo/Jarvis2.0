@@ -1,15 +1,66 @@
 from dataclasses import dataclass, field
-from common import TelegramFunction
+from typing import List
+from common.telegram_manager.TelegramFunction import TelegramFunction
+from common.telegram_manager.TelegramMessage import TelegramMessage
 
 
 @dataclass
-class TelegramPendingUser:
-    telegram_id: int  # user_id
-    approved: bool
-    banned: bool
-    app: str
-    name: str = None
+class TelegramChat:
+    chat_id: int
+    type: str
+    title: str = None
     username: str = None
+    first_name: str = None
+    last_name: str = None
+
+    # __ flags and settings __
+    inline_mode: bool = True
+    silent: bool = False
+
+    # __ chat history __
+    messages: List[TelegramMessage] = field(default_factory=lambda: [])
+    running_functions: List[TelegramFunction] = field(default_factory=lambda: [])
+
+    def new_message(self, telegram_message: TelegramMessage):
+        self.messages.append(telegram_message)
+
+    # __ functions __
+    def new_function(self, telegram_message: TelegramMessage, function_name: str):
+        self.reset_open_functions()
+        return TelegramFunction(id=telegram_message.message_id,
+                                name=function_name,
+                                # function_type=function_type,
+                                timestamp=telegram_message.date,
+                                update_id=telegram_message.update_id,
+                                last_message_id=telegram_message.message_id
+                                )
+
+    def append_function(self, telegram_function: TelegramFunction):
+        self.running_functions.append(telegram_function)
+
+    def reset_open_functions(self):
+        for function in self.running_functions:
+            function.is_open_for_message = False
+
+    def get_function_by_message_id(self, message_id: int) -> TelegramFunction:
+        functions = [x for x in self.running_functions if x.id == message_id]
+        return functions[0] if len(functions) > 0 else None
+
+    def get_function_by_callback_message_id(self, callback_message_id: int) -> TelegramFunction:
+        functions = [x for x in self.running_functions if x.callback_message_id == callback_message_id]
+        return functions[0] if len(functions) > 0 else None
+
+    def get_function_open_for_message(self) -> TelegramFunction:
+        functions = sorted([x for x in self.running_functions if x.is_open_for_message], key=lambda x: x.update_id, reverse=True)
+        return functions[0] if len(functions) > 0 else None
+
+    def delete_function_by_message_id(self, message_id: int):
+        self.running_functions = [x for x in self.running_functions if x.id != message_id]
+
+
+if __name__ == '__main__':
+    pass
+
 
 """ New Chat
 {'update_id': 879617908, 

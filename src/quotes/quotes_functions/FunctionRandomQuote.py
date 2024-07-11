@@ -4,8 +4,8 @@ from typing import List, Type
 
 from src.common.functions.Function import Function
 from src.common.postgre.PostgreManager import PostgreManager
-from quotes import QuotesUser
-from quotes import QuotesFunction
+from quotes.classes.QuotesUser import QuotesUser
+from quotes.quotes_functions.QuotesFunction import QuotesFunction
 
 
 @dataclass
