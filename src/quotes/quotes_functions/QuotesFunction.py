@@ -3,8 +3,7 @@ from random import choice, shuffle
 
 from common.tools import get_human_date_from_timestamp
 from common.functions.Function import Function
-from src.common.postgre.PostgreManager import PostgreManager
-from common.telegram_manager.TelegramManager import TelegramUser
+from common.telegram_manager.TelegramUser import TelegramUser
 from quotes.classes.QuotesUser import QuotesUser
 from quotes.classes.QuotesPostgreManager import QuotesPostgreManager
 from quotes.classes.Note import Note

@@ -1,6 +1,7 @@
 import os
 import json
 from pathlib import Path
+from dataclasses import dataclass, field
 
 from src.common.tools.library import file_read, file_write, get_exception, print_exception
 from src.common.tools.logging_class import LoggerObj
@@ -9,14 +10,18 @@ from src.common.tools.logging_class import LoggerObj
 config_path = Path(__file__).parent.parent.parent.parent
 
 
+@dataclass
 class FileManager:
-    def __init__(self, folder='config', caller="", ext_logger=None, logger_level="DEBUG", logging_queue=None):
-        self.name = "{}ConfigManager".format(caller)
-        self.caller = caller
-        self.folder = folder
+    os_environ: bool = False
+    name: str = 'FileManager'
+    caller: str = ''
+    folder: str = 'config'
+    logger: LoggerObj = field(default=None)
+    logging_queue: object = field(default=None)
+    logger_level: str = 'DEBUG'
 
-        # __ init logger __
-        self.logger = self.__init_logger(logger_level, logging_queue) if not ext_logger else ext_logger
+    def __post_init__(self):
+        self.logger = self.__init_logger(self.logger_level, self.logging_queue) if not self.logger else self.logger
 
     # __ Logger __
     def __init_logger(self, logger_level, logging_queue):
@@ -46,17 +51,34 @@ class FileManager:
 
     # __ load/save __
     def load(self, key):
+        return self.load_from_env(key=key) if self.os_environ else self.load_from_file(key=key)
+
+    def save(self, key, data):
+        return self.save_to_file(key=key, data=data)
+
+    def load_from_env(self, key):
+        try:
+            return os.environ[key]
+        except:
+            self.logger.warning('Error in loading {} from environ'.format(key))
+            return None
+
+    def load_from_file(self, key):
         try:
             return json.loads(file_read(config_path.joinpath(self.folder).joinpath(f"{key}.txt")))
         except:
             self.logger.warning('Error in restoring {}'.format(key))
             return None
 
-    def save(self, key, data):
+    def save_to_file(self, key, data):
         file_write(config_path.joinpath(self.folder).joinpath(key), json.dumps(data))
         return True
 
-    # __ postgre url __
+    # __ get absolute path __
+    def get_absolut_path(self):
+        return config_path.joinpath(self.folder)
+
+    # __ get variables __
     def get_postgre_url(self, database_key='POSTGRE_URL_LOCAL'):
         return self.load(key=database_key)
 
@@ -68,9 +90,6 @@ class FileManager:
 
     def get_admin_chat(self, database_key='ADMIN_CHAT'):
         return self.load(key=database_key)
-
-    def get_absolut_path(self):
-        return config_path.joinpath(self.folder)
 
 
 if __name__ == '__main__':

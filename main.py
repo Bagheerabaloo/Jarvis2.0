@@ -1,3 +1,4 @@
-from src.quotes.quotes_main import main
+from quotes import QuotesManager
 
-main()
+quotes_manager = QuotesManager()
+quotes_manager.start()

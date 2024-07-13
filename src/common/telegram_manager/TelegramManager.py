@@ -15,7 +15,8 @@ from common.telegram_manager.TelegramMessageType import TelegramMessageType
 from common.telegram_manager.TelegramUser import TelegramUser
 
 from common.functions.Function import Function
-from common.functions import FunctionSendCallback, FunctionStart
+from common.functions.FunctionSendCallback import FunctionSendCallback
+from common.functions.FunctionStart import FunctionStart
 from common.postgre.PostgreManager import PostgreManager
 
 # TODO: create new files in common package

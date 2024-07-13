@@ -7,8 +7,12 @@ from threading import Timer
 from random import choice, shuffle
 from typing import List, Type
 
-from common.telegram_manager.TelegramManager import TelegramManager, TelegramUser, TelegramChat, TelegramMessage, TelegramMessageType
-from src.common.functions.Function import Function
+from common.telegram_manager.TelegramUser import TelegramUser
+from common.telegram_manager.TelegramChat import TelegramChat
+from common.telegram_manager.TelegramMessage import TelegramMessage
+from common.telegram_manager.TelegramManager import TelegramManager
+
+from common.functions.Function import Function
 from common.tools import to_int, timestamp2date, build_eta
 
 from quotes.classes.QuotesUser import QuotesUser
@@ -34,7 +38,8 @@ class QuotesApp(TelegramManager):
         return self.quotes_users
 
     """ ###### OVERRIDING FUNCTIONS ##### """
-    def instantiate_function(self, function,
+    def instantiate_function(self,
+                             function,
                              chat: TelegramChat,
                              message: TelegramMessage,
                              is_new: bool,
