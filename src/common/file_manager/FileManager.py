@@ -50,15 +50,16 @@ class FileManager:
         return None
 
     # __ load/save __
-    def load(self, key):
-        return self.load_from_env(key=key) if self.os_environ else self.load_from_file(key=key)
+    def load(self, key, json_loads=False):
+        return self.load_from_env(key=key, json_loads=json_loads) if self.os_environ else self.load_from_file(key=key)
 
     def save(self, key, data):
         return self.save_to_file(key=key, data=data)
 
-    def load_from_env(self, key):
+    def load_from_env(self, key, json_loads=False):
         try:
-            return os.environ[key]
+            value = os.environ[key]
+            return json.loads(value) if json_loads else value
         except:
             self.logger.warning('Error in loading {} from environ'.format(key))
             return None
@@ -86,10 +87,10 @@ class FileManager:
         return self.load(key=database_key)
 
     def get_admin(self, database_key='ADMIN_INFO'):
-        return self.load(key=database_key)
+        return self.load(key=database_key, json_loads=True)
 
     def get_admin_chat(self, database_key='ADMIN_CHAT'):
-        return self.load(key=database_key)
+        return self.load(key=database_key, json_loads=True)
 
 
 if __name__ == '__main__':
