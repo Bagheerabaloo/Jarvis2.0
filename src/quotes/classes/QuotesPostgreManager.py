@@ -189,6 +189,7 @@ class QuotesPostgreManager(PostgreManager):
 
         success = True
         for tag in note.tags:
+            tag.note_id = note_id
             success &= self.insert_tag(tag=tag, commit=False)
         if not success:
             self.rollback()
@@ -334,7 +335,7 @@ class QuotesPostgreManager(PostgreManager):
                 INSERT INTO tags
                 (tag, {name_})
                 VALUES
-                ($${tag}$$, {tag.quote_id if tag.quote_id else tag.note_id})
+                ($${tag.tag}$$, {tag.quote_id if tag.quote_id else tag.note_id})
                 """
         return self.insert_query(query=query, commit=commit)
 

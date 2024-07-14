@@ -4,6 +4,7 @@ from typing import List, Type
 
 from common.tools import int_timestamp_now
 from quotes.classes.Note import Note
+from quotes.classes.Tag import Tag
 from quotes.quotes_functions.QuotesFunction import QuotesFunction
 
 
@@ -56,7 +57,7 @@ class FunctionNewNote(QuotesFunction):
             return
 
         note = Note(note=self.telegram_function.settings['note'],
-                    tags=self.telegram_function.settings['tags'],
+                    tags=[Tag(tag=tag) for tag in self.telegram_function.settings['tags']],
                     is_book=self.telegram_function.settings['is_book'],
                     book=self.telegram_function.settings['book'],
                     pag=int(self.telegram_function.settings['pag']) if self.telegram_function.settings['pag'] else None,
