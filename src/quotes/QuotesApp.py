@@ -26,10 +26,19 @@ class QuotesApp(TelegramManager):
     daily_quote: bool = True
     daily_book: bool = True
     name: str = "Quotes"
+    loop: asyncio.AbstractEventLoop = None
 
     def __post_init__(self):
         super().__post_init__()
         self.quotes_users = self.postgre_manager.get_quotes_users()
+
+        # __ init asyncio loop __
+        self.loop = asyncio.get_event_loop()
+        if self.loop.is_closed():
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+
+        # __ init timers __
         self.__init_quote_timer() if self.daily_quote else None
         self.__init_book_timer() if self.daily_book else None
 
@@ -129,11 +138,7 @@ class QuotesApp(TelegramManager):
 
     """ ###### ROUTINES ##### """
     def __init_quote_timer(self):
-        dt = datetime.now(pytz.timezone('Europe/Rome'))
-        eta = ((9 - dt.hour - 1) * 60 * 60) + ((60 - dt.minute - 1) * 60) + (60 - dt.second)
-
-        if eta < 0:
-            eta += 24*60*60
+        eta = build_eta(target_hour=9, target_minute=00)
 
         print('Daily Quote set in ' + str(to_int(eta/3600)) + 'h:' + str(to_int((eta % 3600)/60)) + 'm:' + str(to_int(((eta % 3600) % 60))) + 's:')
 
@@ -144,7 +149,10 @@ class QuotesApp(TelegramManager):
         # self.quotes_settings['daily_quote'] = True
 
     def __asyncio_daily_quote(self):
-        asyncio.run(self.__daily_quote())
+        if self.loop.is_closed():
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self.__daily_quote())
 
     async def __daily_quote(self):
         quotes = self.postgre_manager.get_last_random_quotes()
@@ -168,13 +176,12 @@ class QuotesApp(TelegramManager):
                                            chat=chat,
                                            initial_settings=settings)
 
-            sleep(0.2)
+            await asyncio.sleep(0.2)
         print(f"Sending daily quotes completed at {timestamp2date(time())}")
 
     def __init_book_timer(self):
         eta_1 = build_eta(target_hour=12, target_minute=00)
         eta_2 = build_eta(target_hour=18, target_minute=00)
-        # eta_2 = 20
 
         print('Next Note 1 set in ' + str(to_int(eta_1/3600)) + 'h:' + str(to_int((eta_1 % 3600)/60)) + 'm:' + str(to_int(((eta_1 % 3600) % 60))) + 's:')
         print('Next Note 2 set in ' + str(to_int(eta_2/3600)) + 'h:' + str(to_int((eta_2 % 3600)/60)) + 'm:' + str(to_int(((eta_2 % 3600) % 60))) + 's:')
@@ -188,7 +195,10 @@ class QuotesApp(TelegramManager):
         self.note_timer_eta_2.start()
 
     def __asyncio_daily_book(self):
-        asyncio.run(self.__daily_book())
+        if self.loop.is_closed():
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self.__daily_book())
 
     async def __daily_book(self):
         notes = self.postgre_manager.get_daily_notes()
@@ -221,7 +231,7 @@ class QuotesApp(TelegramManager):
                                            initial_settings=settings,
                                            initial_state=2)
 
-            sleep(0.2)
+            await asyncio.sleep(0.2)
         print(f"Sending daily book notes completed at {timestamp2date(time())}")
 
     """ ###### CLOSING APP ##### """
