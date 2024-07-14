@@ -1,6 +1,7 @@
 import asyncio
 import telegram
 from dataclasses import dataclass, field
+from time import sleep
 
 from common.telegram_manager.TelegramUser import TelegramUser
 from common.telegram_manager.TelegramChat import TelegramChat
@@ -118,10 +119,14 @@ class TelegramBot:
             return self.split_and_send_message(text=text, chat_id=chat_id, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent)
 
         num_of_tries = 0  # TODO: replace this section with pending messages
+        max_tries = 10
         response = None
-        while not response and num_of_tries < 10:
+        while not response and num_of_tries < max_tries:
             try:
                 response = await self.__send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent)
+            except telegram.error.Forbidden:
+                num_of_tries = max_tries
+                continue
             except:
                 sleep(1)
                 num_of_tries += 1
