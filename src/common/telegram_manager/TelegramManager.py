@@ -122,11 +122,11 @@ class TelegramManager:
                 updates = []
 
             for update in updates:
-                self.__handle_update(update=update.to_dict())
+                self.handle_update(update=update.to_dict())
         except:
             LOGGER.warning(get_exception())
 
-    def __handle_update(self, update):
+    def handle_update(self, update):
         self.next_id = update["update_id"] + 1
 
         # __ handle a command/message __
@@ -307,8 +307,7 @@ class TelegramManager:
                                                user_x=user_x,
                                                chat=chat,
                                                message=message)
-        else:
-            await self.call_message(user_x=user_x, message=message, chat=chat, txt='')
+        await self.call_message(user_x=user_x, message=message, chat=chat, txt='')
 
     async def run_existing_function(self,
                                     function,

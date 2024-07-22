@@ -36,7 +36,7 @@ class FunctionNewQuote(QuotesFunction):
             self.close_function()
             return False
 
-        quote_obj = Quote(quote=quote, author=author, telegram_id=self.quotes_user.telegram_id)
+        quote_obj = Quote(quote=quote, author=author, telegram_id=self.user.telegram_id)
         if not self.postgre_manager.insert_quote(quote=quote_obj):
             await self.send_message(chat_id=self.chat.chat_id, text='Quote already present in DB')
         else:

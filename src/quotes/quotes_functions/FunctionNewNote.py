@@ -61,7 +61,7 @@ class FunctionNewNote(QuotesFunction):
                     is_book=self.telegram_function.settings['is_book'],
                     book=self.telegram_function.settings['book'],
                     pag=int(self.telegram_function.settings['pag']) if self.telegram_function.settings['pag'] else None,
-                    telegram_id=self.quotes_user.telegram_id,
+                    telegram_id=self.user.telegram_id,
                     created=int_timestamp_now(),
                     last_modified=int_timestamp_now())
 

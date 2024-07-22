@@ -21,7 +21,7 @@ class FunctionRandomQuote(QuotesFunction):
             return self.close_function()
 
         quote = choice(quotes)
-        quote_body = self.postgre_manager.get_quote_in_language(quote=quote, user=self.quotes_user)
+        quote_body = self.postgre_manager.get_quote_in_language(quote=quote, user=self.user)
         author = quote.author.replace('_', ' ')
         text = f"{quote_body}\n\n_{author}_"
         await self.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")

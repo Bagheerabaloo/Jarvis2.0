@@ -22,6 +22,9 @@ from quotes.quotes_functions.FunctionShowQuotes import FunctionShowQuotes
 from quotes.quotes_functions.FunctionNewQuote import FunctionNewQuote
 from quotes.quotes_functions.FunctionNewNote import FunctionNewNote
 from quotes.quotes_functions.FunctionShowNotes import FunctionShowNotes
+from quotes.quotes_functions.FunctionEditNote import FunctionEditNote
+from quotes.quotes_functions.FunctionEditPag import FunctionEditPag
+from quotes.quotes_functions.FunctionEditTags import FunctionEditTags
 from quotes.quotes_functions.FunctionDailyQuote import FunctionDailyQuote
 from quotes.quotes_functions.FunctionQuotesSettings import FunctionQuotesSettings
 from quotes.quotes_functions.FunctionBook import FunctionBook
@@ -74,6 +77,9 @@ class QuotesManager:
         Command(alias=["newQuote"], admin=True, function=FunctionNewQuote),
         Command(alias=["note"], admin=True, function=FunctionNewNote),
         Command(alias=["showNotes"], admin=False, function=FunctionShowNotes),
+        Command(alias=["editNotes"], admin=False, function=FunctionEditNote),
+        Command(alias=["editPag"], admin=False, function=FunctionEditPag),
+        Command(alias=["editTags"], admin=False, function=FunctionEditTags),
         Command(alias=["settings"], admin=False, function=FunctionQuotesSettings),
         Command(alias=["book"], admin=False, function=FunctionBook),
         Command(alias=["appNewUser"], admin=True, function=FunctionQuotesNewUser, restricted=True),

@@ -10,7 +10,7 @@ from typing import List, Type
 from common.telegram_manager.TelegramUser import TelegramUser
 from common.telegram_manager.TelegramChat import TelegramChat
 from common.telegram_manager.TelegramMessage import TelegramMessage
-from common.telegram_manager.TelegramManager import TelegramManager
+from common.telegram_manager.telegram_manager import TelegramManager, LOGGER
 
 from common.functions.Function import Function
 from common.tools import to_int, timestamp2date, build_eta
@@ -152,7 +152,8 @@ class QuotesApp(TelegramManager):
         if self.loop.is_closed():
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
-        self.loop.run_until_complete(self.__daily_quote())
+        task = asyncio.create_task(self.__daily_quote(), name='DailyQuoteTask')
+        self.loop.run_until_complete(task)
 
     async def __daily_quote(self):
         quotes = self.postgre_manager.get_last_random_quotes()
@@ -201,14 +202,17 @@ class QuotesApp(TelegramManager):
         self.loop.run_until_complete(self.__daily_book())
 
     async def __daily_book(self):
-        notes = self.postgre_manager.get_daily_notes()
-        if len(notes) == 0:
+        daily_notes = self.postgre_manager.get_daily_notes()
+        if len(daily_notes) == 0:
             return None
 
-        note = choice(notes)
+        note = choice(daily_notes)
         book = note.book
-        notes: List[Note] = self.postgre_manager.get_notes_with_tags_by_book(book=book)
-        index = next((index for (index, d) in enumerate(notes) if d.note_id == note.note_id), None)
+        # notes: List[Note] = self.postgre_manager.get_notes_with_tags_by_book(book=book)
+        # index = next((index for (index, d) in enumerate(notes) if d.note_id == note.note_id), None)
+        notes_ids = self.postgre_manager.get_notes_ids_by_book(book=book)
+        index = next((index for (index, d) in enumerate(notes_ids) if d == note.note_id), None)
+
         self.postgre_manager.update_note_by_note_id(note_id=note.note_id, set_params={'last_random_time': to_int(time())})
 
         print(f"Start sending daily book notes at {timestamp2date(time())}")
@@ -222,7 +226,7 @@ class QuotesApp(TelegramManager):
                 settings = {"note": note.note,
                             "book": note.book,
                             "index": index,
-                            "notes": notes,
+                            "notes_ids": notes_ids,
                             "is_book_note": True}
                 await self.execute_command(user_x=user,
                                            command=message.text,
@@ -239,6 +243,21 @@ class QuotesApp(TelegramManager):
         self.__close_quote_timer()
         self.__close_note_timer()
         self.close_telegram_manager()
+        if self.loop and self.loop.is_running():
+            LOGGER.debug("Shutting down event loop.")
+            asyncio.run_coroutine_threadsafe(self.__shutdown_loop(self.loop), self.loop).result()
+        else:
+            if self.loop:
+                self.loop.close()
+                LOGGER.debug("Event loop closed.")
+
+    @staticmethod
+    async def __shutdown_loop(loop):
+        tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task(loop)]
+        LOGGER.debug(f"Shutting down {len(tasks)} tasks.")
+        list(map(lambda task: task.cancel(), tasks))
+        await asyncio.gather(*tasks, return_exceptions=True)
+        loop.stop()
 
     def __close_quote_timer(self):
         try:

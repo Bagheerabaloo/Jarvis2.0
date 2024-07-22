@@ -20,7 +20,7 @@ class Function(ABC):
     message: TelegramMessage
     # function_type: FunctionType
     is_new: bool = field(default=True)
-    telegram_user: TelegramUser = field(default=None)
+    user: TelegramUser = field(default=None)
     postgre_manager: PostgreManager = field(default=None)
     telegram_function: TelegramFunction = field(init=False)
     need_to_update_users: bool = False
@@ -140,12 +140,13 @@ class Function(ABC):
         # user_x.is_callback = False
         # return True if success else False
 
-    async def edit_message(self, chat_id: int, text: str, inline_keyboard: list = None, parse_mode=None):
+    async def edit_message(self, chat_id: int, text: str, inline_keyboard: list = None, parse_mode=None, open_for_messages: bool = False):
         if not self.telegram_function.callback_message_id:
             return await self.send_message(chat_id=chat_id,
                                            text=text,
                                            inline_keyboard=inline_keyboard,
-                                           parse_mode=parse_mode)
+                                           parse_mode=parse_mode,
+                                           open_for_messages=open_for_messages)
 
         # TODO: handle case in which message is the same as the previous one
 

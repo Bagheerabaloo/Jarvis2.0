@@ -8,7 +8,7 @@ class FunctionQuotesSettings(QuotesFunction):
     name: str = 'quotes_settings'
 
     async def state_1(self):
-        user = self.quotes_user
+        user = self.user
 
         settings = self.main_settings
         if user.super_user:
@@ -35,7 +35,7 @@ class FunctionQuotesSettings(QuotesFunction):
         self.telegram_function.next()
 
     async def state_2(self):
-        user = self.quotes_user
+        user = self.user
         parameter = self.message.last_message()
         self.telegram_function.settings['parameter'] = None
         txt = ''
@@ -51,7 +51,7 @@ class FunctionQuotesSettings(QuotesFunction):
 
         await self.send_callback(chat=self.chat, message=self.message, text=txt)
 
-        self.postgre_manager.update_db_user_setting(user=self.quotes_user, attribute=attribute) if self.postgre_manager else None
+        self.postgre_manager.update_db_user_setting(user=self.user, attribute=attribute) if self.postgre_manager else None
         self.telegram_function.settings['parameter'] = parameter
         self.telegram_function.back()
         return await self.state_1()

@@ -20,7 +20,7 @@ class FunctionShowQuotes(QuotesFunction):
         query = f"""SELECT Q.quote_id 
                     FROM quotes Q
                     JOIN favorites F ON F.quote_id = Q.quote_id
-                    WHERE F.telegram_id = {self.quotes_user.telegram_id}""" if self.quotes_user.only_favourites else "SELECT quote_id FROM quotes"
+                    WHERE F.telegram_id = {self.user.telegram_id}""" if self.user.only_favourites else "SELECT quote_id FROM quotes"
 
         quotes_ids = self.postgre_manager.select_query(query=query)
         if len(quotes_ids) == 0:
@@ -41,20 +41,14 @@ class FunctionShowQuotes(QuotesFunction):
         index = self.telegram_function.settings["index"]
         if self.telegram_function.previous_state == self.telegram_function.state:
             action = self.message.data
-            if action == '<':
-                index -= 1
-            elif action == '>':
-                index += 1
-            elif action == '>>':
-                index = min(index + 10, len(quotes_ids) - 1)
-            elif action == '<<':
-                index = max(index - 10, 0)
-            elif action == 'AddFavorite':
-                self.postgre_manager.insert_favorite(quote_id=quotes_ids[index]['quote_id'], user_id=self.quotes_user.telegram_id)
+            if action == 'AddFavorite':
+                self.postgre_manager.insert_favorite(quote_id=quotes_ids[index]['quote_id'], user_id=self.user.telegram_id)
                 await self.send_callback(chat=self.chat, message=self.message, text='Added to favorites')
             elif action == 'RemoveFavorite':
-                self.postgre_manager.delete_favorite(quote_id=quotes_ids[index]['quote_id'], user_id=self.quotes_user.telegram_id)
+                self.postgre_manager.delete_favorite(quote_id=quotes_ids[index]['quote_id'], user_id=self.user.telegram_id)
                 await self.send_callback(chat=self.chat, message=self.message, text='Removed from favorites')
+            else:
+                index = self.get_new_index(index=index, action=action, len_notes=len(quotes_ids))
             # elif action == 'addTranslation' and user_x.settings['super_user']:
             #     user_x.accept_messages = True
             #     return self.system_automessage(user_x.next())
@@ -67,15 +61,15 @@ class FunctionShowQuotes(QuotesFunction):
         quote = self.postgre_manager.get_quotes_by_params(params=params)[0]
         # quote = self.__find_quotes(params)[0]
 
-        show_counter_header = f"_{str(index + 1)}/{str(len(quotes_ids))}_\n\n" if self.quotes_user.show_counter else ''
-        quote_body = self.postgre_manager.get_quote_in_language(quote=quote, user=self.quotes_user)
+        show_counter_header = f"_{str(index + 1)}/{str(len(quotes_ids))}_\n\n" if self.user.show_counter else ''
+        quote_body = self.postgre_manager.get_quote_in_language(quote=quote, user=self.user)
         quote_author = quote.author.replace('_', ' ')
         text = f"{show_counter_header}{quote_body}\n\n_{quote_author}_"
 
-        if self.postgre_manager.is_favorite(quote_id=quote.quote_id, telegram_id=self.quotes_user.telegram_id):
-            keyb = [['RemoveFavorite', 'addTranslation']] if self.quotes_user.super_user and quote.quote_ita is None else [['RemoveFavorite']]
+        if self.postgre_manager.is_favorite(quote_id=quote.quote_id, telegram_id=self.user.telegram_id):
+            keyb = [['RemoveFavorite', 'addTranslation']] if self.user.super_user and quote.quote_ita is None else [['RemoveFavorite']]
         else:
-            keyb = [['AddFavorite', 'addTranslation']] if self.quotes_user.super_user and quote.quote_ita is None else [['AddFavorite']]
+            keyb = [['AddFavorite', 'addTranslation']] if self.user.super_user and quote.quote_ita is None else [['AddFavorite']]
         if len(keyboard) > 0:
             keyb.append(keyboard)
 

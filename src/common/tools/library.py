@@ -35,6 +35,7 @@ def class_from_args(class_name, arg_dict):
 # __ Running main applications __
 def run_main(app, log_queue: Queue = None):
     killer = GracefulKiller()
+    closed_by_killer = False
     
     while app.run:
         # if log_queue and not log_queue.empty():
@@ -47,9 +48,13 @@ def run_main(app, log_queue: Queue = None):
         if killer.kill_now:
             # app.logger.info("Received SIGINT signal ...")
             print("Received SIGINT signal ...")
+            closed_by_killer = True
             app.close()
 
         sleep(1)
+
+    if not closed_by_killer:
+        app.close()
 
     # app.logger.info('Exiting main loop')
     print('Exiting main loop')

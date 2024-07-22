@@ -198,6 +198,22 @@ class QuotesPostgreManager(PostgreManager):
             self.commit()
         return True
 
+    def get_notes_ids(self, sorted_by_created: bool = False) -> List[int]:
+        query = f"""SELECT * from notes"""
+        notes = self.select_query(query=query)
+        if not notes:
+            return []
+        if sorted_by_created:
+            notes = sorted(notes, key=lambda d: d['created'], reverse=True)
+        return [x["note_id"] for x in notes]
+
+    def get_notes_ids_by_book(self, book: str) -> List[int]:
+        query = f"""SELECT * FROM notes WHERE book = $${book}$$ ORDER BY pag, created"""
+        notes = self.select_query(query=query)
+        if not notes:
+            return []
+        return [x["note_id"] for x in notes]
+
     def get_notes(self, sorted_by_created: bool = False) -> List[Note]:
         query = f"""SELECT * from notes N"""
         notes = self.select_query(query=query)
@@ -240,28 +256,6 @@ class QuotesPostgreManager(PostgreManager):
             notes = sorted(notes, key=lambda d: (float('inf') if d["pag"] is None else d["pag"], d["created"]))
         return [class_from_args(Note, x) for x in notes]
 
-    def get_books(self) -> List[str]:
-        query = "SELECT DISTINCT book FROM notes"
-        books = self.select_query(query=query)
-        return [x['book'] for x in books] if books else []
-
-    @staticmethod
-    def __arrange_tags(results: List[dict]) -> List[dict]:
-        notes_id = list(set([x['id'] for x in results]))
-
-        notes = []
-        for note_id in notes_id:
-            temp_notes = [x for x in results if x['id'] == note_id]
-            note = {key: temp_notes[0][key]
-                    for key in temp_notes[0] if key not in ['tag_id', 'tag', 'quote_id', 'note_id']}
-            note.update({'tags': [class_from_args(Tag, {"tag": x['tag'], "note_id": note_id})
-                                  for x in temp_notes if x["tag"]]
-                         })
-            note['note_id'] = note.pop('id')
-            notes.append(note)
-
-        return notes
-
     def get_note_id_by_note(self, note: str) -> Optional[str]:
         query = f"""
                 SELECT note_id 
@@ -284,6 +278,28 @@ class QuotesPostgreManager(PostgreManager):
                               for x in results if x["tag"]]
                      })  # TODO: this line is repeated in the code, unify it
         return class_from_args(Note, note)
+
+    def get_books(self) -> List[str]:
+        query = "SELECT DISTINCT book FROM notes"
+        books = self.select_query(query=query)
+        return [x['book'] for x in books] if books else []
+
+    @staticmethod
+    def __arrange_tags(results: List[dict]) -> List[dict]:
+        notes_id = list(set([x['id'] for x in results]))
+
+        notes = []
+        for note_id in notes_id:
+            temp_notes = [x for x in results if x['id'] == note_id]
+            note = {key: temp_notes[0][key]
+                    for key in temp_notes[0] if key not in ['tag_id', 'tag', 'quote_id', 'note_id']}
+            note.update({'tags': [class_from_args(Tag, {"tag": x['tag'], "note_id": note_id})
+                                  for x in temp_notes if x["tag"]]
+                         })
+            note['note_id'] = note.pop('id')
+            notes.append(note)
+
+        return notes
 
     def update_note_by_note_id(self, note_id: int, set_params: dict) -> bool:
         # TODO: unify with update_quote_by_quote_id
@@ -344,6 +360,23 @@ class QuotesPostgreManager(PostgreManager):
         tags = [tag for note in sorted_notes for tag in note.get_list_tags()]
         set_tags = list(OrderedDict.fromkeys(tags))[:max_tags]
         return set_tags
+
+    def remove_tag_from_note_by_id(self, note_id: int, tag: str) -> bool:
+        query = f"""
+                DELETE FROM tags
+                WHERE note_id = {note_id}
+                AND tag = $${tag}$$
+                """
+        return self.delete_query(query, commit=True)
+
+    def add_tag_to_note_by_id(self, note_id: int, tag: str) -> bool:
+        query = f"""
+                INSERT INTO tags
+                (tag, note_id)
+                VALUES
+                ($${tag}$$, {note_id})
+                """
+        return self.insert_query(query, commit=True)
 
     """ ____ DB: Favorites Collection _____"""
     def is_favorite(self, quote_id, telegram_id):
