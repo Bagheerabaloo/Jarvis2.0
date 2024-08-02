@@ -152,8 +152,7 @@ class QuotesApp(TelegramManager):
         if self.loop.is_closed():
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
-        task = asyncio.create_task(self.__daily_quote(), name='DailyQuoteTask')
-        self.loop.run_until_complete(task)
+        self.loop.run_until_complete(self.__daily_quote())
 
     async def __daily_quote(self):
         quotes = self.postgre_manager.get_last_random_quotes()
