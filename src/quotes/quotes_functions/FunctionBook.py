@@ -30,7 +30,10 @@ class FunctionBook(QuotesFunction):
 
         self.telegram_function.settings["book"] = book
         notes = self.postgre_manager.get_notes_with_tags_by_book(book=book)
-        self.telegram_function.settings["notes"] = notes
+
+        notes_ids = self.postgre_manager.get_notes_ids_by_book(book=book)
+        self.telegram_function.settings["notes_ids"] = notes_ids
+
         self.telegram_function.settings["index"] = 0
         self.telegram_function.settings["is_book_note"] = False
         self.telegram_function.settings["initial_state"] = 2
