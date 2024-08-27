@@ -33,8 +33,9 @@ class QuotesApp(TelegramManager):
         self.quotes_users = self.postgre_manager.get_quotes_users()
 
         # __ init asyncio loop __
-        self.loop = asyncio.get_event_loop()
-        if self.loop.is_closed():
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
 
@@ -153,12 +154,11 @@ class QuotesApp(TelegramManager):
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
 
-        # Controlla se l'event loop è già in esecuzione
-        if not self.loop.is_running():
-            self.loop.run_until_complete(self.__daily_quote())
+        # Utilizza call_soon_threadsafe per pianificare __daily_quote
+        if self.loop.is_running():
+            self.loop.call_soon_threadsafe(asyncio.create_task, self.__daily_quote())
         else:
-            # Se il loop è già in esecuzione, utilizza asyncio.create_task
-            asyncio.create_task(self.__daily_quote())
+            self.loop.run_until_complete(self.__daily_quote())
 
     async def __daily_quote(self):
         quotes = self.postgre_manager.get_last_random_quotes()
@@ -204,7 +204,12 @@ class QuotesApp(TelegramManager):
         if self.loop.is_closed():
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
-        self.loop.run_until_complete(self.__daily_book())
+
+        # Utilizza call_soon_threadsafe per pianificare __daily_book
+        if self.loop.is_running():
+            self.loop.call_soon_threadsafe(asyncio.create_task, self.__daily_book())
+        else:
+            self.loop.run_until_complete(self.__daily_book())
 
     async def __daily_book(self):
         daily_notes = self.postgre_manager.get_daily_notes()
@@ -250,7 +255,9 @@ class QuotesApp(TelegramManager):
         self.close_telegram_manager()
         if self.loop and self.loop.is_running():
             LOGGER.debug("Shutting down event loop.")
-            asyncio.run_coroutine_threadsafe(self.__shutdown_loop(self.loop), self.loop).result()
+            # Utilizza call_soon_threadsafe per eseguire __shutdown_loop
+            future = asyncio.run_coroutine_threadsafe(self.__shutdown_loop(self.loop), self.loop)
+            future.result()
         else:
             if self.loop:
                 self.loop.close()
