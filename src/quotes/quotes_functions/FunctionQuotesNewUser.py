@@ -6,7 +6,7 @@ from quotes.quotes_functions.QuotesFunction import QuotesFunction
 
 
 @dataclass
-class FunctionQuotesNewUser(QuotesFunction, FunctionAppNewUser):
+class FunctionQuotesNewUser(FunctionAppNewUser, QuotesFunction):
     name: str = 'quotes_new_user'
 
     def approve_app_user(self, new_user: TelegramUser):
