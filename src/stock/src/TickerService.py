@@ -1,27 +1,18 @@
-import yfinance as yf
 import pandas as pd
-import numpy as np
-import pytz
-import uuid
-from datetime import datetime, date
-from typing import Type, Optional, List
+from datetime import date
+from typing import Optional
 from dataclasses import dataclass, field
-from decimal import Decimal
 
-from sqlalchemy.orm import session as sess
-from sqlalchemy.sql import literal, and_
-from sqlalchemy.inspection import inspect
+from sqlalchemy.sql import and_
 
-from src.common.tools.library import safe_execute
-
-from TickerServiceBase import Ticker, TickerServiceBase
-from models import Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates
-from models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
-from models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
-from models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
-from models import UpgradesDowngrades
-from CandleService import CandleService
-from CandleDataInterval import CandleDataInterval
+from stock.src.TickerServiceBase import Ticker, TickerServiceBase
+from stock.src.models import Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates
+from stock.src.models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
+from stock.src.models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
+from stock.src.models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
+from stock.src.models import UpgradesDowngrades
+from stock.src.CandleService import CandleService
+from stock.src.CandleDataInterval import CandleDataInterval
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -32,7 +23,7 @@ class TickerService(TickerServiceBase):
 
     """ Handle the insertion or update of a Ticker record in the database. """
     def handle_ticker(self, info: dict) -> bool:
-        ticker_data = {"symbol": self.symbol, "company_name": info["longName"], "business_summary": info["longBusinessSummary"]}
+        ticker_data = {"symbol": self.symbol, "company_name": info["longName"], "business_summary": info["longBusinessSummary"] if "longBusinessSummary" in info else None}
         try:
             # __ check if the ticker already exists __
             existing_ticker: Optional[Ticker] = self.session.query(Ticker).filter_by(symbol=ticker_data['symbol']).first()
@@ -118,6 +109,12 @@ class TickerService(TickerServiceBase):
         :param balance_sheet: DataFrame containing the balance sheet data.
         :param period_type: The period type of the data (e.g., 'annual' or 'quarterly').
         """
+
+        # __ if balance_sheet is empty, return __
+        if balance_sheet.empty:
+            print(f"{self.ticker.symbol} - {'Balance Sheet'.rjust(50)} - no data to insert")
+            return None
+
         # Transpose the DataFrame to have dates as rows
         balance_sheet = balance_sheet.T
 
@@ -231,6 +228,12 @@ class TickerService(TickerServiceBase):
         :param cash_flow: DataFrame containing the cash flow data.
         :param period_type: The period type of the data (e.g., 'annual' or 'quarterly').
         """
+
+        # __ if cash_flow is empty, return __
+        if cash_flow.empty:
+            print(f"{self.ticker.symbol} - {'Cash Flow'.rjust(50)} - no data to insert")
+            return None
+
         # Transpose the DataFrame to have dates as rows
         cash_flow = cash_flow.T
 
@@ -335,6 +338,12 @@ class TickerService(TickerServiceBase):
         :param financials: DataFrame containing the financials data.
         :param period_type: The period type of the data (e.g., 'annual' or 'quarterly').
         """
+
+        # __ if financials is empty, return __
+        if financials.empty:
+            print(f"{self.ticker.symbol} - {'Financials'.rjust(50)} - no data to insert")
+            return None
+
         # Transpose the DataFrame to have dates as rows
         financials = financials.T
 
@@ -424,6 +433,12 @@ class TickerService(TickerServiceBase):
 
         :param actions: DataFrame containing the actions data.
         """
+
+        # __ if actions is empty, return __
+        if actions.empty:
+            print(f"{self.ticker.symbol} - {'Actions'.rjust(50)} - no data to insert")
+            return None
+
         # __ rename and reset the index and convert it to date __
         actions.reset_index(inplace=True)
         actions['Date'] = pd.to_datetime(actions['Date']).dt.tz_localize(None)
@@ -447,6 +462,11 @@ class TickerService(TickerServiceBase):
         :param calendar: Dictionary containing the dividend and earnings data.
         """
 
+        # __ if calendar is empty, return __
+        if not calendar or not any(calendar.values()):
+            print(f"{self.ticker.symbol} - {'Calendar'.rjust(50)} - no data to insert")
+            return None
+
         new_record_data = {
             'dividend_date': calendar.get('Dividend Date', None),
             'ex_dividend_date': calendar.get('Ex-Dividend Date', None),
@@ -469,6 +489,12 @@ class TickerService(TickerServiceBase):
 
         :param earnings_dates: DataFrame containing the earnings dates data.
         """
+
+        # __ if earnings_dates is empty, return __
+        if earnings_dates.empty:
+            print(f"{self.ticker.symbol} - {'Earnings Dates'.rjust(50)} - no data to insert")
+            return None
+
         # __ rename and reset the index and convert it to date __
         earnings_dates.index.name = "date"
         earnings_dates.reset_index(inplace=True)
@@ -513,6 +539,12 @@ class TickerService(TickerServiceBase):
 
         :param info_data: Dictionary containing the company address information from stock.info.
         """
+
+        # __ if info_data is empty, return __
+        if not info_data:
+            print(f"{self.ticker.symbol} - {'Company Address'.rjust(50)} - no data to insert")
+            return None
+
         # Prepare the new record data with default values as None
         new_record_data = {
             'address1': info_data.get('address1', None),
@@ -537,6 +569,12 @@ class TickerService(TickerServiceBase):
 
         :param info_data: Dictionary containing the stock information, including sector and industry.
         """
+
+        # __ if info_data is empty, return __
+        if not info_data:
+            print(f"{self.ticker.symbol} - {'Sector Industry History'.rjust(50)} - no data to insert")
+            return None
+
         new_record_data = {
             'sector': info_data.get('sector', None),
             'industry': info_data.get('industry', None)
@@ -553,6 +591,12 @@ class TickerService(TickerServiceBase):
 
         :param info_data: Dictionary containing the target price and recommendation data.
         """
+
+        # __ if info_data is empty, return __
+        if not info_data:
+            print(f"{self.ticker.symbol} - {'Target Price and Recommendation'.rjust(50)} - no data to insert")
+            return None
+
         new_record_data = {
             'target_high_price': info_data.get('targetHighPrice', None),
             'target_low_price': info_data.get('targetLowPrice', None),
@@ -574,6 +618,12 @@ class TickerService(TickerServiceBase):
 
         :param governance_datainfo_data: Dictionary containing the governance data.
         """
+
+        # __ if info_data is empty, return __
+        if not info_data:
+            print(f"{self.ticker.symbol} - {'Governance'.rjust(50)} - no data to insert")
+            return None
+
         # Prepare the new record data for InfoGovernance
         new_record_data = {
             'audit_risk': info_data.get('auditRisk', None),
@@ -598,6 +648,12 @@ class TickerService(TickerServiceBase):
 
         :param info_data: Dictionary containing the financial ratios data.
         """
+
+        # __ if info_data is empty, return __
+        if not info_data:
+            print(f"{self.ticker.symbol} - {'Cash and Financial Ratios'.rjust(50)} - no data to insert")
+            return None
+
         new_record_data = {
             'total_cash': info_data.get('totalCash', None),
             'total_cash_per_share': info_data.get('totalCashPerShare', None),
@@ -631,6 +687,11 @@ class TickerService(TickerServiceBase):
 
         :param info_data: Dictionary containing the market and financial metrics data.
         """
+
+        # __ if info_data is empty, return __
+        if not info_data:
+            print(f"{self.ticker.symbol} - {'Market and Financial Metrics'.rjust(50)} - no data to insert")
+            return None
 
         # Extract the new data from the info_data dictionary
         new_record_data = {
@@ -698,6 +759,12 @@ class TickerService(TickerServiceBase):
         :param info_data: Dictionary containing the general stock information from stock.info.
         :param history_metadata: Dictionary containing the general stock information from stock.history_metadata.
         """
+
+        # __ if info_data is empty, return __
+        if not info_data:
+            print(f"{self.ticker.symbol} - {'General Stock Info'.rjust(50)} - no data to insert")
+            return None
+
         # Prepare the new record data combining both info_data and metadata_data
         new_record_data = {
             'isin': isin,
@@ -741,6 +808,12 @@ class TickerService(TickerServiceBase):
         :param basic_info: Dictionary containing the basic info data from stock.basic_info.
         :param history_metadata: Dictionary containing the history metadata from stock.history_metadata.
         """
+
+        # __ if info is empty, return __
+        if not info:
+            print(f"{self.ticker.symbol} - {'Trading Session Info'.rjust(50)} - no data to insert")
+            return None
+
         # Prepare the new record data with default values as None
         new_record_data = {
             # From history metadata (dynamic data)
@@ -795,6 +868,12 @@ class TickerService(TickerServiceBase):
 
         :param insider_purchases: DataFrame containing the insider purchases data.
         """
+
+        # __ if insider_purchases is empty, return __
+        if insider_purchases.empty:
+            print(f"{self.ticker.symbol} - {'Insider Purchases'.rjust(50)} - no data to insert")
+            return None
+
         # __ substitute NaN values with 0 in the 'Shares' column __
         insider_purchases['Shares'] = insider_purchases['Shares'].fillna(0)  # TODO: review this operation
         insider_purchases['Trans'] = insider_purchases['Trans'].fillna(0)
@@ -865,6 +944,12 @@ class TickerService(TickerServiceBase):
 
         :param insider_roster_holders: DataFrame containing the insider roster holders data.
         """
+
+        # __ if insider_roster_holders is empty, return __
+        if insider_roster_holders.empty:
+            print(f"{self.ticker.symbol} - {'Insider Roster Holders'.rjust(50)} - no data to insert")
+            return None
+
         # insider_roster_holders['Shares Owned Directly'] = insider_roster_holders['Shares Owned Directly'].apply(lambda x: int(x) if not pd.isna(x) else x)
         # insider_roster_holders['Shares Owned Indirectly'] = insider_roster_holders['Shares Owned Indirectly'].apply(lambda x: int(x) if not pd.isna(x) else x)
 
@@ -892,6 +977,12 @@ class TickerService(TickerServiceBase):
 
         :param insider_transactions: DataFrame containing the insider transactions data.
         """
+
+        # __ if insider_transactions is empty, return __
+        if insider_transactions.empty:
+            print(f"{self.ticker.symbol} - {'Insider Transactions'.rjust(50)} - no data to insert")
+            return None
+
         # __ normalize column names to match SQLAlchemy model attributes __
         insider_transactions.columns = [col.lower().replace(' ', '_') for col in insider_transactions.columns]
 
@@ -910,6 +1001,12 @@ class TickerService(TickerServiceBase):
 
         :param institutional_holders: DataFrame containing the institutional holders' data.
         """
+
+        # __ if institutional_holders is empty, return __
+        if institutional_holders.empty:
+            print(f"{self.ticker.symbol} - {'Institutional Holders'.rjust(50)} - no data to insert")
+            return None
+
         # __ check if the DataFrame is empty __
         if institutional_holders.empty:
             print(f"{self.ticker.symbol} - {'Institutional Holders'.rjust(50)} - no data to process")
@@ -938,6 +1035,12 @@ class TickerService(TickerServiceBase):
 
         :param major_holders: DataFrame containing the major holders data as a single record.
         """
+
+        # __ if major_holders is empty, return __
+        if major_holders.empty:
+            print(f"{self.ticker.symbol} - {'Major Holders'.rjust(50)} - no data to insert")
+            return None
+
         # Ensure the DataFrame has the correct structure
         if major_holders.empty or major_holders.index.empty:
             print("Major holders DataFrame is empty or does not have the correct structure.")
@@ -966,6 +1069,12 @@ class TickerService(TickerServiceBase):
 
         :param mutual_fund_holders: DataFrame containing the mutual fund holders data.
         """
+
+        # __ if mutual_fund_holders is empty, return __
+        if mutual_fund_holders.empty:
+            print(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to insert")
+            return None
+
         # Normalize column names to match SQLAlchemy model attributes
         mutual_fund_holders.columns = [col.lower().replace(' ', '_') for col in mutual_fund_holders.columns]
 
@@ -1005,6 +1114,12 @@ class TickerService(TickerServiceBase):
 
         :param mutual_fund_holders: DataFrame containing the mutual fund holders data.
         """
+
+        # __ if mutual_fund_holders is empty, return __
+        if mutual_fund_holders.empty:
+            print(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to process")
+            return None
+
         # __ check if the DataFrame is empty __
         if mutual_fund_holders.empty:
             print(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to process")
@@ -1033,6 +1148,12 @@ class TickerService(TickerServiceBase):
 
         :param recommendations: DataFrame containing the recommendations data.
         """
+
+        # __ if recommendations is empty, return __
+        if recommendations.empty:
+            print(f"{self.ticker.symbol} - {'Recommendations'.rjust(50)} - no data to insert")
+            return None
+
         # Normalize column names to match SQLAlchemy model attributes
         recommendations.columns = [col.lower().replace(' ', '_') for col in recommendations.columns]
 
@@ -1085,6 +1206,12 @@ class TickerService(TickerServiceBase):
 
         :param upgrades_downgrades: DataFrame containing the upgrades and downgrades data.
         """
+
+        # __ if upgrades_downgrades is empty, return __
+        if upgrades_downgrades.empty:
+            print(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no data to insert")
+            return None
+
         # __ rename index to 'date' and reset the index to make it a column __
         upgrades_downgrades.index.name = 'date'
         upgrades_downgrades.reset_index(inplace=True)
@@ -1129,6 +1256,12 @@ class TickerService(TickerServiceBase):
 
         :param upgrades_downgrades: DataFrame containing the upgrades and downgrades data.
         """
+
+        # __ if upgrades_downgrades is empty, return __
+        if upgrades_downgrades.empty:
+            print(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no data to insert")
+            return None
+
         # __ rename index to 'date' and reset the index to make it a column __
         upgrades_downgrades.index.name = 'date'
         upgrades_downgrades.reset_index(inplace=True)

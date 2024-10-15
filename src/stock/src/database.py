@@ -14,6 +14,7 @@ postgre_url = config_manager.get_postgre_url("POSTGRE_URL_LOCAL_STOCK")
 
 # Create the connection engine
 engine = create_engine(postgre_url)
+# engine.echo = True  # Set to True for debugging
 
 # Create a base class for our ORM classes
 Base = declarative_base()

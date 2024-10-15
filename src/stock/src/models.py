@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, Numeric, ForeignKey, Index, UniqueConstraint
-from sqlalchemy import Float, TIMESTAMP, BigInteger, Date, DateTime, UUID as SA_UUID
+from sqlalchemy import Float, BigInteger, Date, DateTime, UUID as SA_UUID
 from sqlalchemy.orm import relationship
-from src.stock.database import Base
+from stock.src.database import Base
 
 
 class Ticker(Base):
@@ -863,8 +863,32 @@ class CandleDataDay(Base):
     # __ relationship to the Ticker class __
     ticker = relationship("Ticker", back_populates="candle_data_day")
 
-    # __ relationship with CandleAnalysisDay __
-    analysis = relationship("CandleAnalysisDay", back_populates="candle_data_day", uselist=False)  # One-to-one relationship
+    # __ relationship with CandleAnalysisCandlestickDay __
+    candlestick_analysis = relationship(
+        "CandleAnalysisCandlestickDay",
+        back_populates="candle_data_day",
+        uselist=False,
+        cascade="all, delete-orphan",
+        # confirm_deleted_rows=False  # Disable warning
+    )  # One-to-one relationship
+
+    # __ relationship with CandleAnalysisIndicatorsDay __
+    indicators_analysis = relationship(
+        "CandleAnalysisIndicatorsDay",
+        back_populates="candle_data_day",
+        uselist=False,
+        cascade="all, delete-orphan",
+        # confirm_deleted_rows=False  # Disable warning
+    )  # One-to-one relationship
+
+    # __ relationship with CandleAnalysisTrendMethod1Day __
+    trend_method_1_analysis = relationship(
+        "CandleAnalysisTrendMethod1Day",
+        back_populates="candle_data_day",
+        uselist=False,
+        cascade="all, delete-orphan",
+        # confirm_deleted_rows=False  # Disable warning
+    )  # One-to-one relationship
 
     # Define unique constraint and indexes to improve query performance
     __table_args__ = (
@@ -1002,15 +1026,81 @@ class CandleData1Minute(Base):
 
 
 # Candle Analysis Tables
-class CandleAnalysisDay(Base):
-    __tablename__ = 'candle_analysis_day'
+# class CandleAnalysisDay(Base):
+#     __tablename__ = 'candle_analysis_day'
+#
+#     candle_data_day_id = Column(Integer, ForeignKey('candle_data_day.id'), primary_key=True, index=True)  # Foreign key to CandleDataDay
+#
+#     prev_close = Column(Float, nullable=True)       # Previous close price
+#     tr = Column(Float, nullable=True)               # True Range
+#     atr = Column(Float, nullable=True)              # Average True Range
+#     atr_percent = Column(Float, nullable=True)      # Average True Range as a percentage
+#
+#     bullish = Column(Boolean, nullable=True)        # Bullish indicator
+#     body_delta = Column(Float, nullable=True)       # Difference between open and close prices
+#     shadow_delta = Column(Float, nullable=True)     # Difference between high and low prices
+#
+#     percent_body = Column(Float, nullable=True)             # Percentage of body relative to the total candle
+#     percent_upper_shadow = Column(Float, nullable=True)     # Percentage of upper shadow
+#     percent_lower_shadow = Column(Float, nullable=True)     # Percentage of lower shadow
+#
+#     long_body = Column(Boolean, nullable=True)          # Indicator if the candle has a long body
+#     shadow_imbalance = Column(Float, nullable=True)     # Imbalance between upper and lower shadows
+#     shaven_head = Column(Boolean, nullable=True)        # Indicator if the candle has no upper shadow
+#     shaven_bottom = Column(Boolean, nullable=True)      # Indicator if the candle has no lower shadow
+#
+#     doji = Column(Boolean, nullable=True)                       # Indicator if the candle is a doji
+#     spinning_top = Column(Boolean, nullable=True)               # Indicator if the candle is a spinning top
+#     umbrella_line = Column(Boolean, nullable=True)              # Indicator if the candle is an umbrella line
+#     umbrella_line_inverted = Column(Boolean, nullable=True)     # Indicator if the candle is an inverted umbrella line
+#
+#     mid_body = Column(Float, nullable=True)             # Midpoint of the body of the candle
+#     body_atr_percent = Column(Float, nullable=True)     # Body as a percentage of ATR
+#     body2atr_percent = Column(Float, nullable=True)     # Double body as a percentage of ATR
+#     long_atr_candle = Column(Boolean, nullable=True)    # Indicator if the candle is long relative to ATR
+#
+#     body2atr2_shadow_imbalance_ratio = Column(Float, nullable=True)     # Ratio of double body to shadow imbalance
+#     long_candle_light = Column(Boolean, nullable=True)                  # Indicator if the candle is long and light
+#     long_candle_bullish_light = Column(Boolean, nullable=True)          # Indicator if the candle is long, bullish, and light
+#     long_candle_bearish_light = Column(Boolean, nullable=True)          # Indicator if the candle is long, bearish, and light
+#
+#     long_candle = Column(Boolean, nullable=True)                # Indicator if the candle is long
+#     long_candle_bullish = Column(Boolean, nullable=True)        # Indicator if the candle is long and bullish
+#     long_candle_bearish = Column(Boolean, nullable=True)        # Indicator if the candle is long and bearish
+#
+#     engulfing_bullish = Column(Boolean, nullable=True)  # Bullish engulfing pattern indicator
+#     engulfing_bearish = Column(Boolean, nullable=True)  # Bearish engulfing pattern indicator
+#
+#     dark_cloud_cover = Column(Boolean, nullable=True)           # Dark cloud cover pattern indicator
+#     dark_cloud_cover_light = Column(Boolean, nullable=True)     # Light version of dark cloud cover pattern indicator
+#     piercing_pattern = Column(Boolean, nullable=True)           # Piercing pattern indicator
+#     piercing_pattern_light = Column(Boolean, nullable=True)     # Light version of piercing pattern indicator
+#     on_neck_pattern = Column(Boolean, nullable=True)            # On neck pattern indicator
+#     in_neck_pattern = Column(Boolean, nullable=True)            # In neck pattern indicator
+#     thrusting_pattern = Column(Boolean, nullable=True)          # Thrusting pattern indicator
+#
+#     star = Column(Boolean, nullable=True)               # Star pattern indicator
+#     evening_star = Column(Boolean, nullable=True)       # Evening star pattern indicator
+#     morning_star = Column(Boolean, nullable=True)       # Morning star pattern indicator
+#
+#     ma50 = Column(Float, nullable=True)                     # 50-day moving average
+#     ma100 = Column(Float, nullable=True)                    # 100-day moving average
+#     ma200 = Column(Float, nullable=True)                    # 200-day moving average
+#     ma200_distance_percent = Column(Float, nullable=True)   # Distance from 200-day moving average in percentage
+#
+#     rsi = Column(Float, nullable=True)      # Relative Strength Index
+#
+#     # __ relationship to CandleDataDay
+#     candle_data_day = relationship("CandleDataDay", back_populates="analysis")  # One-to-one relationship
+#
+#     def __repr__(self):
+#         return f"<CandleAnalysisDay(candle_data_day_id={self.candle_data_day_id})>"
+
+
+class CandleAnalysisCandlestickDay(Base):
+    __tablename__ = 'candle_analysis_candlestick_day'
 
     candle_data_day_id = Column(Integer, ForeignKey('candle_data_day.id'), primary_key=True, index=True)  # Foreign key to CandleDataDay
-
-    prev_close = Column(Float, nullable=True)       # Previous close price
-    tr = Column(Float, nullable=True)               # True Range
-    atr = Column(Float, nullable=True)              # Average True Range
-    atr_percent = Column(Float, nullable=True)      # Average True Range as a percentage
 
     bullish = Column(Boolean, nullable=True)        # Bullish indicator
     body_delta = Column(Float, nullable=True)       # Difference between open and close prices
@@ -1059,6 +1149,23 @@ class CandleAnalysisDay(Base):
     evening_star = Column(Boolean, nullable=True)       # Evening star pattern indicator
     morning_star = Column(Boolean, nullable=True)       # Morning star pattern indicator
 
+    # __ relationship to CandleDataDay
+    candle_data_day = relationship("CandleDataDay", back_populates="candlestick_analysis")  # One-to-one relationship
+
+    def __repr__(self):
+        return f"<CandleAnalysisCandlestickDay(candle_data_day_id={self.candle_data_day_id})>"
+
+
+class CandleAnalysisIndicatorsDay(Base):
+    __tablename__ = 'candle_analysis_indicators_day'
+
+    candle_data_day_id = Column(Integer, ForeignKey('candle_data_day.id'), primary_key=True, index=True)  # Foreign key to CandleDataDay
+
+    prev_close = Column(Float, nullable=True)       # Previous close price
+    tr = Column(Float, nullable=True)               # True Range
+    atr = Column(Float, nullable=True)              # Average True Range
+    atr_percent = Column(Float, nullable=True)      # Average True Range as a percentage
+
     ma50 = Column(Float, nullable=True)                     # 50-day moving average
     ma100 = Column(Float, nullable=True)                    # 100-day moving average
     ma200 = Column(Float, nullable=True)                    # 200-day moving average
@@ -1067,7 +1174,85 @@ class CandleAnalysisDay(Base):
     rsi = Column(Float, nullable=True)      # Relative Strength Index
 
     # __ relationship to CandleDataDay
-    candle_data_day = relationship("CandleDataDay", back_populates="analysis")  # One-to-one relationship
+    candle_data_day = relationship("CandleDataDay", back_populates="indicators_analysis")  # One-to-one relationship
 
     def __repr__(self):
-        return f"<CandleAnalysisDay(candle_data_day_id={self.candle_data_day_id})>"
+        return f"<CandleAnalysisIndicatorsDay(candle_data_day_id={self.candle_data_day_id})>"
+
+
+class CandleAnalysisTrendMethod1Day(Base):
+    __tablename__ = 'candle_analysis_trend_method_1_day'
+
+    candle_data_day_id = Column(Integer, ForeignKey('candle_data_day.id'), primary_key=True, index=True)  # Foreign key to CandleDataDay
+
+    trend_all_time_high = Column(Float, nullable=True)
+    trend_down_from_all_time_high = Column(Float, nullable=True)
+    trend_days_from_all_time_high = Column(Float, nullable=True)
+    curr_max = Column(Float, nullable=True)
+    curr_min = Column(Float, nullable=True)
+    down_from_high = Column(Float, nullable=True)
+    up_from_low = Column(Float, nullable=True)
+    trend = Column(String(50), nullable=True)
+    trend_change = Column(Boolean, nullable=True)
+    reversing = Column(Boolean, nullable=True)
+    session = Column(Float, nullable=True)
+    block = Column(Float, nullable=True)
+    curr_min_min = Column(Float, nullable=True)
+    min_1 = Column(Float, nullable=True)
+    min_2 = Column(Float, nullable=True)
+    session_min_1 = Column(Float, nullable=True)
+    session_min_2 = Column(Float, nullable=True)
+    curr_max_max = Column(Float, nullable=True)
+    max_1 = Column(Float, nullable=True)
+    max_2 = Column(Float, nullable=True)
+    session_max_1 = Column(Float, nullable=True)
+    session_max_2 = Column(Float, nullable=True)
+
+    # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=True)
+
+    # __ relationship to CandleDataDay
+    candle_data_day = relationship("CandleDataDay", back_populates="trend_method_1_analysis")  # One-to-one relationship
+
+    def __repr__(self):
+        return f"<CandleAnalysisTrendMethod1Day(candle_data_day_id={self.candle_data_day_id})>"
+
+
+class SP500Changes(Base):
+    __tablename__ = 'sp_500_changes'
+
+    # Unique identifier for each candle
+    date = Column(Date, primary_key=True, nullable=False)
+
+    # Foreign key to the ticker table, indexed for fast queries
+    ticker = Column(String(10), primary_key=True, nullable=False)  # Ticker symbol (e.g., AAPL)
+
+    # Details of the action
+    add = Column(Boolean, nullable=False)          # Indicator if the row is a ticker added on that date
+    remove = Column(Boolean, nullable=False)       # Indicator if the row is a ticker removed on that date
+
+    # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=True)
+
+    # Define unique constraint and indexes to improve query performance
+    __table_args__ = (
+        UniqueConstraint('ticker', 'date', name='uix_sp_500_changes_ticker_date'),
+        Index('ix_sp_500_changes_ticker_date', 'ticker', 'date'),  # Combined index on ticker_id and date
+    )
+
+    def __repr__(self):
+        return f"<SP500Changes(date={self.date}, ticker={self.ticker}, add={self.add}, remove={self.remove})>"
+
+
+class SP500Historical(Base):
+    __tablename__ = 'sp_500_historical'
+
+    # Primary key is a composite of date and ticker
+    date = Column(Date, primary_key=True, nullable=False)
+    ticker = Column(String(10), primary_key=True, nullable=False)
+
+    # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<SP500Historical(date={self.date}, ticker={self.ticker})>"

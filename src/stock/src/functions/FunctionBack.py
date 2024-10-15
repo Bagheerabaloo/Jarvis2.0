@@ -1,6 +1,5 @@
-from dataclasses import dataclass, field
-from src.common.functions.Function import Function
-from src.stock.functions.StockFunction import StockFunction
+from dataclasses import dataclass
+from stock.src.functions.StockFunction import StockFunction
 
 
 @dataclass

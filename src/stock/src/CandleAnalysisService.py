@@ -1,33 +1,18 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 import pandas as pd
 import pandas_ta as ta
-import talib
-import numpy as np
-from time import time
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy.orm import session as sess
-from sqlalchemy.sql import literal, and_
 
-from src.common.tools.library import seconds_to_time
-from stock_main import tickers_sp500
-from stock.database import session_local
-from models import CandleDataDay, CandleDataWeek, CandleDataMonth, CandleData1Hour, CandleData5Minutes, CandleData1Minute
-from models import CandleAnalysisDay
-from TickerServiceBase import Ticker, TickerServiceBase
-from CandleDataInterval import CandleDataInterval
+from stock.src.models import CandleDataDay, CandleDataWeek, CandleDataMonth, CandleData1Hour, CandleData5Minutes, CandleData1Minute
+from stock.src.models import CandleAnalysisCandlestickDay, CandleAnalysisIndicatorsDay, CandleAnalysisTrendMethod1Day
+from stock.src.TickerServiceBase import Ticker
+from stock.src.CandleDataInterval import CandleDataInterval
 
 
 import matplotlib
-from mplfinance.original_flavor import candlestick_ohlc
 from src.common.tools.library import *
-from CandlePlot import CandlePlot
-import matplotlib.dates as mpl_dates
-import matplotlib.pyplot as plt
-import mplfinance as mpf
-from mplfinance.original_flavor import candlestick_ohlc
-from matplotlib.animation import FuncAnimation
-from matplotlib.ticker import MaxNLocator, FuncFormatter
 
 matplotlib.use('TkAgg')
 
@@ -53,7 +38,7 @@ class CandleAnalysisService:
         """ Load the candlestick data from the database upon initialization. """
         self.candle_data = self.load_candle_data()
 
-    def load_candle_data(self) -> pd.DataFrame:
+    def load_candle_data(self) -> Optional[pd.DataFrame]:
         """
         Load candlestick data from the database based on the ticker and interval.
 
@@ -74,10 +59,10 @@ class CandleAnalysisService:
             # Convert the query results to a DataFrame
             df = pd.read_sql(query.statement, self.session.bind)
 
-            print(f"Candlestick data loaded for {self.symbol} with interval {self.interval.value}")
+            print(f"        - {df.shape[0]} candles loaded for {self.symbol} with interval {self.interval.value}")
             return df
         except Exception as e:
-            print(f"Error loading candlestick data: {e}")
+            print(f"        - Error loading candlestick data: {e}")
             return pd.DataFrame()  # Return an empty DataFrame in case of error
         # finally:
         #     # Close the database session
@@ -89,16 +74,19 @@ class CandleAnalysisService:
         Example method to perform specific analysis on the candlestick data.
         """
         if self.candle_data.empty:
-            print("Candlestick data not available for analysis")
-            return
+            print("     Candlestick data not available for analysis")
+            return None
 
         candle_data = self.candle_data.copy().rename(
             columns={"date": "Date", "open": "Open", "high": "High", "low": "Low", "close": "Close"}
         )
-        # candle_data = self.add_candlestick_info(candle_data=candle_data)
         candle_data = self.add_volatility(candle_data=candle_data)
         candle_data = self.add_moving_averages(candle_data)
+        candle_data = self.add_candlestick_info(candle_data=candle_data)
+        #   __ add oscillators __
+        candle_data = self.add_relative_strength_index(candle_data=candle_data, period=14)
         # candle_data = self.add_trend(candles=candle_data)
+        #   __ add trend analysis __
         candle_data = self.add_trend_atr(candles=candle_data)
         candle_data['Session'] = range(len(candle_data))
         candle_data = self.add_extreme_points(candles=candle_data)
@@ -111,26 +99,25 @@ class CandleAnalysisService:
         candle_data = self.add_local_min(candles=candle_data, window=51)
         candle_data = self.add_local_min(candles=candle_data, window=101)
 
-        candle_data = candle_data.iloc[-1000:].reset_index(drop=True)
-        candle_plot = CandlePlot(
-            symbol=self.symbol,
-            interval=self.interval,
-            candle_data=candle_data,
-            oscillator_column="ATR%"
-        )
+        # __ plot the candlestick data __
+        # candle_data = candle_data.iloc[-1000:].reset_index(drop=True)
+        # candle_plot = CandlePlot(
+        #     symbol=self.symbol,
+        #     interval=self.interval,
+        #     candle_data=candle_data,
+        #     oscillator_column="ATR%"
+        # )
+        #
+        # candle_plot.plot_candle_data(
+        #     plot_ma=True,
+        #     plot_oscillator=True,
+        #     plot_sensitivity_channel=False,
+        #     plot_intervals=False,
+        #     plot_trend_lines=False,
+        #     plot_local_max=True,
+        # )
 
-        candle_plot.plot_candle_data(
-            plot_ma=True,
-            plot_oscillator=True,
-            plot_sensitivity_channel=False,
-            plot_intervals=False,
-            plot_trend_lines=False,
-            plot_local_max=True,
-        )
-
-        # self.plot_candles_with_trend_lines_animated_oscillator(oscillator_column="ATR%")
-
-        print("Candlestick data analysis completed")
+        print(f"        - Candlestick data analysis completed")
         self.candle_data = candle_data
         return candle_data
 
@@ -140,8 +127,88 @@ class CandleAnalysisService:
 
         :param df: DataFrame containing the candlestick analysis data to be processed.
         """
+        # __ CANDLESTICK __
+        # __ select columns related to candlestick patterns __
+
+        if df.empty:
+            print("        - No candlestick analysis data to handle.")
+            return None
+
+        candlestick_columns = ['id', 'ticker_id', 'bullish', 'bodyDelta',
+                               'shadowDelta', '%body', '%upperShadow', '%lowerShadow', 'longBody',
+                               'shadowImbalance', 'shavenHead', 'shavenBottom', 'doji', 'spinningTop',
+                               'umbrellaLine', 'umbrellaLineInverted', 'midBody', 'bodyATR%',
+                               'body2ATR%', 'longATRCandle', 'body2ATR%2shadowImbalanceRatio',
+                               'longCandleLight', 'longCandleBullishLight', 'longCandleBearishLight',
+                               'longCandle', 'longCandleBullish', 'longCandleBearish',
+                               'engulfingBullish', 'engulfingBearish', 'darkCloudCover',
+                               'darkCloudCoverLight', 'piercingPattern', 'piercingPatternLight',
+                               'onNeckPattern', 'inNeckPattern', 'thrustingPattern', 'star',
+                               'eveningStar', 'morningStar']
+        # __ filter the DataFrame to only include the candlestick columns __
+        candlestick_data = df[candlestick_columns]
+        # __ handle the candlestick analysis data update or insertion __
+        self.handle_candle_analysis_candlestick_data(df=candlestick_data)
+
+        # __ INDICATORS __
+        # __ select columns related to indicators __
+        indicator_columns = ['id', 'prevClose', 'TR', 'ATR', 'ATR%', 'MA50',
+                             'MA100', 'MA200', 'MA200Distance%', 'RSI']
+        # __ filter the DataFrame to only include the indicator columns __
+        indicator_data = df[indicator_columns]
+        # __ handle the indicator analysis data update or insertion __
+        self.handle_candle_analysis_indicators_data(df=indicator_data)
+
+        # __ TREND METHOD 1 __
+        # __ select columns related to trend analysis __
+        trend_method_1_columns = ['id', 'TrendAllTimeHigh', 'TrendDownFromAllTimeHigh',
+                                  'TrendDaysFromAllTimeHigh', 'currMax', 'currMin', 'DownFromHigh',
+                                  'UpFromLow', 'Trend', 'TrendChange', 'reversing', 'Session', 'block',
+                                  'currMin_min', 'min_1', 'min_2', 'session_min_1', 'session_min_2',
+                                  'currMax_max', 'max_1', 'max_2', 'session_max_1', 'session_max_2']
+        # __ filter the DataFrame to only include the trend columns __
+        trend_method_1_data = df[trend_method_1_columns]
+        # __ handle the trend analysis data update or insertion __
+        self.handle_candle_analysis_trend_method_1_data(df=trend_method_1_data)
+
+    def handle_candle_analysis_candlestick_data(self, df: pd.DataFrame) -> None:
+        """
+        Handle the bulk update or insertion of candlestick analysis data into the database.
+
+        :param df: DataFrame containing the candlestick analysis data to be processed.
+        """
         # __ fetch the ticker_id from the ticker symbol __
-        ticker = session.query(Ticker).filter(Ticker.symbol == self.symbol).first()
+        ticker = self.session.query(Ticker).filter(Ticker.symbol == self.symbol).first()
+        if not ticker:
+            print(f"        - Ticker with symbol '{self.symbol}' not found.")
+            return
+
+        ticker_id = ticker.id
+
+        # __ fetch all the candle_data_day_id for the specified ticker_id __
+        candle_data_ids = self.session.query(CandleDataDay.id).filter(CandleDataDay.ticker_id == ticker_id).all()
+        candle_data_ids = [candle_data_id[0] for candle_data_id in candle_data_ids]  # Flatten the list of tuples
+
+        # __ delete existing CandleAnalysisCandleStickDay records linked to those candle_data_day_ids __
+        self.session.query(CandleAnalysisCandlestickDay).filter(CandleAnalysisCandlestickDay.candle_data_day_id.in_(candle_data_ids)).delete(synchronize_session=False)
+
+        # __ create instances of CandleAnalysisDay from the DataFrame
+        new_records = self.dataframe_to_candle_analysis_candlestick_day(candle_data=df)
+
+        # __ perform bulk insert __
+        self.session.bulk_save_objects(new_records)
+        self.session.commit()
+
+        print(f"        - Candlestick patterns - inserted {len(new_records)} new records.")
+
+    def handle_candle_analysis_indicators_data(self, df: pd.DataFrame) -> None:
+        """
+        Handle the bulk update or insertion of indicators analysis data into the database.
+
+        :param df: DataFrame containing the candlestick analysis data to be processed.
+        """
+        # __ fetch the ticker_id from the ticker symbol __
+        ticker = self.session.query(Ticker).filter(Ticker.symbol == self.symbol).first()
         if not ticker:
             print(f"Ticker with symbol '{self.symbol}' not found.")
             return
@@ -149,37 +216,76 @@ class CandleAnalysisService:
         ticker_id = ticker.id
 
         # __ fetch all the candle_data_day_id for the specified ticker_id __
-        candle_data_ids = session.query(CandleDataDay.id).filter(CandleDataDay.ticker_id == ticker_id).all()
+        candle_data_ids =  (self.session
+                           .query(CandleDataDay.id)
+                           .filter(CandleDataDay.ticker_id == ticker_id).all()
+                           )
         candle_data_ids = [candle_data_id[0] for candle_data_id in candle_data_ids]  # Flatten the list of tuples
 
-        # __ delete existing CandleAnalysisDay records linked to those candle_data_day_ids __
-        session.query(CandleAnalysisDay).filter(CandleAnalysisDay.candle_data_day_id.in_(candle_data_ids)).delete(synchronize_session=False)
-        session.commit()
+        # __ delete existing CandleAnalysisCandleStickDay records linked to those candle_data_day_ids __
+        (self.session
+         .query(CandleAnalysisIndicatorsDay)
+         .filter(CandleAnalysisIndicatorsDay.candle_data_day_id.in_(candle_data_ids))
+         .delete(synchronize_session=False)
+         )
 
         # __ create instances of CandleAnalysisDay from the DataFrame
-        new_records = self.dataframe_to_candle_analysis_day(candle_data=df)
+        new_records = self.dataframe_to_candle_analysis_indicators_day(candle_data=df)
 
         # __ perform bulk insert __
-        session.bulk_save_objects(new_records)
-        session.commit()
+        self.session.bulk_save_objects(new_records)
+        self.session.commit()
 
-        print(f"Inserted {len(new_records)} new records for ticker {self.symbol}.")
+        print(f"        - Indicators - inserted {len(new_records)} new records.")
+
+    def handle_candle_analysis_trend_method_1_data(self, df: pd.DataFrame) -> None:
+        """
+        Handle the bulk update or insertion of trend method 1 analysis data into the database.
+
+        :param df: DataFrame containing the candlestick analysis data to be processed.
+        """
+        # __ fetch the ticker_id from the ticker symbol __
+        ticker = self.session.query(Ticker).filter(Ticker.symbol == self.symbol).first()
+        if not ticker:
+            print(f"Ticker with symbol '{self.symbol}' not found.")
+            return
+
+        ticker_id = ticker.id
+
+        # __ fetch all the candle_data_day_id for the specified ticker_id __
+        candle_data_ids = (self.session
+                           .query(CandleDataDay.id)
+                           .filter(CandleDataDay.ticker_id == ticker_id).all()
+                           )
+        candle_data_ids = [candle_data_id[0] for candle_data_id in candle_data_ids]  # Flatten the list of tuples
+
+        # __ delete existing CandleAnalysisCandleStickDay records linked to those candle_data_day_ids __
+        (self.session
+         .query(CandleAnalysisTrendMethod1Day)
+         .filter(CandleAnalysisTrendMethod1Day.candle_data_day_id.in_(candle_data_ids))
+         .delete(synchronize_session=False)
+         )
+
+        # __ create instances of CandleAnalysisDay from the DataFrame
+        new_records = self.dataframe_to_candle_analysis_trend_method_1_day(candle_data=df)
+
+        # __ perform bulk insert __
+        self.session.bulk_save_objects(new_records)
+        self.session.commit()
+
+        print(f"        - Trend Method 1 - inserted {len(new_records)} new records.")
 
     @staticmethod
-    def dataframe_to_candle_analysis_day(candle_data: pd.DataFrame) -> List[CandleAnalysisDay]:
+    def dataframe_to_candle_analysis_candlestick_day(candle_data: pd.DataFrame) -> List[CandleAnalysisCandlestickDay]:
         """
-        Convert a DataFrame into a list of CandleAnalysisDay instances for bulk insertion into the database.
+        Convert a DataFrame into a list of CandleAnalysisCandlestickDay instances for bulk insertion into the database.
 
         :param candle_data: DataFrame containing the data to be converted.
-        :return: List of CandleAnalysisDay instances.
+        :return: List of CandleAnalysisCandlestickDay instances.
         """
         return [
-            CandleAnalysisDay(
+            CandleAnalysisCandlestickDay(
                 candle_data_day_id=row['id'],  # Primary key linking to CandleDataDay
-                prev_close=row['prevClose'],  # Previous close price
-                tr=row['TR'],  # True Range
-                atr=row['ATR'],  # Average True Range
-                atr_percent=row['ATR%'],  # ATR as a percentage
                 bullish=row['bullish'],  # Bullish flag
                 body_delta=row['bodyDelta'],  # Body delta
                 shadow_delta=row['shadowDelta'],  # Shadow delta
@@ -217,11 +323,68 @@ class CandleAnalysisService:
                 star=row['star'],  # Star pattern
                 evening_star=row['eveningStar'],  # Evening star pattern
                 morning_star=row['morningStar'],  # Morning star pattern
+            )
+            for _, row in candle_data.iterrows()
+        ]
+
+    @staticmethod
+    def dataframe_to_candle_analysis_indicators_day(candle_data: pd.DataFrame) -> List[CandleAnalysisIndicatorsDay]:
+        """
+        Convert a DataFrame into a list of CandleAnalysisIndicatorsDay instances for bulk insertion into the database.
+
+        :param candle_data: DataFrame containing the data to be converted.
+        :return: List of CandleAnalysisIndicatorsDay instances.
+        """
+        return [
+            CandleAnalysisIndicatorsDay(
+                candle_data_day_id=row['id'],  # Primary key linking to CandleDataDay
+                prev_close=row['prevClose'],  # Previous close price
+                tr=row['TR'],  # True Range
+                atr=row['ATR'],  # Average True Range
+                atr_percent=row['ATR%'],  # ATR as a percentage
                 ma50=row['MA50'],  # 50-day moving average
                 ma100=row['MA100'],  # 100-day moving average
                 ma200=row['MA200'],  # 200-day moving average
                 ma200_distance_percent=row['MA200Distance%'],  # Distance from 200-day moving average as a percentage
                 rsi=row['RSI']  # Relative Strength Index
+            )
+            for _, row in candle_data.iterrows()
+        ]
+
+    @staticmethod
+    def dataframe_to_candle_analysis_trend_method_1_day(candle_data: pd.DataFrame) -> List[CandleAnalysisTrendMethod1Day]:
+        """
+        Convert a DataFrame into a list of CandleAnalysisTrendMethod1Day instances for bulk insertion into the database.
+
+        :param candle_data: DataFrame containing the data to be converted.
+        :return: List of CandleAnalysisTrendMethod1Day instances.
+        """
+        return [
+            CandleAnalysisTrendMethod1Day(
+                candle_data_day_id=row['id'],
+                trend_all_time_high=row['TrendAllTimeHigh'],
+                trend_down_from_all_time_high=row['TrendDownFromAllTimeHigh'],
+                trend_days_from_all_time_high=row['TrendDaysFromAllTimeHigh'],
+                curr_max=row['currMax'],
+                curr_min=row['currMin'],
+                down_from_high=row['DownFromHigh'],
+                up_from_low=row['UpFromLow'],
+                trend=row['Trend'],
+                trend_change=row['TrendChange'],
+                reversing=row['reversing'],
+                session=row['Session'],
+                block=row['block'],
+                curr_min_min=row['currMin_min'],
+                min_1=row['min_1'],
+                min_2=row['min_2'],
+                session_min_1=row['session_min_1'],
+                session_min_2=row['session_min_2'],
+                curr_max_max=row['currMax_max'],
+                max_1=row['max_1'],
+                max_2=row['max_2'],
+                session_max_1=row['session_max_1'],
+                session_max_2=row['session_max_2'],
+                last_update=datetime.now()
             )
             for _, row in candle_data.iterrows()
         ]
@@ -236,10 +399,6 @@ class CandleAnalysisService:
         # get current time to measure the time it takes to run the analysis
         start_time = time()
 
-        # __ add volatility __
-        candle_data = self.add_volatility(candle_data=candle_data)
-        volatility_time = time()
-
         # __ add one candle properties __
         candle_data = self.add_one_candle_properties(candle_data=candle_data)
         one_candle_properties_time = time()
@@ -248,25 +407,14 @@ class CandleAnalysisService:
         candle_data = self.add_two_candles_patterns(candle_data=candle_data)
         two_candles_patterns_time = time()
 
-        # __ add moving averages __
-        candle_data = self.add_moving_averages(candle_data=candle_data)
-        moving_averages_time = time()
-
-        #   __ add oscillators __
-        # candle_data = self.add_relative_strength_index_old(candle_data=candle_data, period=14)
-        # candle_data = self.add_relative_strength_index(candle_data=candle_data, period=14)
-        candle_data = self.add_relative_strength_index(candle_data=candle_data, period=14)
-        rsi_time = time()
-
         # _____ Selection _____
         # candle_data[['Date', 'ATR%', 'bodyATR%', 'body2ATR%', 'longATRCandle', '%body', 'shadowImbalance', 'body2ATR%2shadowImbalanceRatio', 'longCandle', 'longCandleBullish', 'longCandleBearish']]
 
-        # print the time it took to run each analysis
-        print(f"{'Volatility:'.ljust(25)} {round(volatility_time - start_time, 3)} sec")
-        print(f"{'One Candle Properties:'.ljust(25)} {round(one_candle_properties_time - volatility_time, 3)} sec")
-        print(f"{'Two Candles Patterns:'.ljust(25)} {round(two_candles_patterns_time - one_candle_properties_time, 3)} sec")
-        print(f"{'Moving Averages:'.ljust(25)} {round(moving_averages_time - two_candles_patterns_time, 3)} sec")
-        print(f"{'RSI:'.ljust(25)} {round(rsi_time - moving_averages_time, 3)} sec")
+        # __ print the time it took to run each analysis __
+        # print(f"{'      - One Candle Properties:'.ljust(25)} {round(one_candle_properties_time - start_time, 3)} sec")
+        # print(f"{'      - Two Candles Patterns:'.ljust(25)} {round(two_candles_patterns_time - one_candle_properties_time, 3)} sec")
+        print(f"        - One Candle Properties: {round(one_candle_properties_time - start_time, 3)} sec")
+        print(f"        - Two Candles Patterns: {round(two_candles_patterns_time - one_candle_properties_time, 3)} sec")
 
         return candle_data
 
@@ -831,6 +979,8 @@ class CandleAnalysisService:
 
         # Filter the rows where 'Low' matches 'curr_min_min'
         filtered = merged[merged['Low'] == merged['currMin_min']][["Session", "block", "currMin_min"]]
+        # __ drop duplicates on 'block' to make sure there is only one block - keep only first entry__
+        filtered = filtered.drop_duplicates(subset='block', keep='first')
         filtered['min_1'] = filtered['currMin_min'].rolling(window=3, min_periods=1).min()
         filtered['min_2'] = filtered['currMin_min'].rolling(window=3, min_periods=1).apply(lambda x: sorted(x)[1] if len(x) > 1 else np.nan)
 
@@ -866,6 +1016,8 @@ class CandleAnalysisService:
 
         # Filter the rows where 'High' matches 'curr_max_max'
         filtered = merged[merged['High'] == merged['currMax_max']][["Session", "block", "currMax_max"]]
+        # __ drop duplicates on 'block' to make sure there is only one block - keep only first entry__
+        filtered = filtered.drop_duplicates(subset='block', keep='first')
         filtered['max_1'] = filtered['currMax_max'].rolling(window=3, min_periods=1).max()
         filtered['max_2'] = filtered['currMax_max'].rolling(window=3, min_periods=1).apply(lambda x: sorted(x)[-2] if len(x) > 1 else np.nan)
 
@@ -949,13 +1101,4 @@ class CandleAnalysisService:
         return candles
 
 
-if __name__ == "__main__":
-    # __ sqlAlchemy __ create new session
-    session = session_local()
-    # symbols = tickers_sp500()
-    symbols = ["AAPL"]
-    for symbol in symbols:
-        analysis = CandleAnalysisService(symbol=symbol, interval=CandleDataInterval.DAY, session=session)
-        candle_data_ = analysis.analyze()
-        # analysis.handle_candle_analysis_data(candle_data_)
 

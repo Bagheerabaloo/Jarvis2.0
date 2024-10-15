@@ -130,7 +130,7 @@ class TelegramBot:
             except:
                 sleep(1)
                 num_of_tries += 1
-                print("Timeout error - trying to send message again")
+                print(f"Timeout error - trying to send message again - chat_id: {chat_id}")
                 continue
         return response
 

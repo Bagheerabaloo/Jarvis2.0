@@ -1,11 +1,12 @@
 from sqlalchemy import text
-from database import engine, Base  # Import the engine and Base class from your database setup
-from src.stock.models import *  # Import all models from the stock module
+from stock.src.database import engine, Base  # Import the engine and Base class from your database setup
+from stock.src.models import *
 
 # Check registered tables
 print("Registered tables before creating:", Base.metadata.tables.keys())
 
 # Create all tables defined in the Base's metadata in the database
+# Base.metadata.clear()
 Base.metadata.create_all(bind=engine)
 
 # Check registered tables after creating

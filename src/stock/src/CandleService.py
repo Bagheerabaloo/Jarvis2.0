@@ -1,27 +1,16 @@
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import pytz
-import uuid
-from datetime import datetime, date
+from datetime import datetime
 from typing import Type, Optional, List
 from dataclasses import dataclass, field
-from decimal import Decimal
-
-from sqlalchemy.orm import session as sess
-from sqlalchemy.sql import literal, and_
-from sqlalchemy.inspection import inspect
 
 from src.common.tools.library import safe_execute
 
-from TickerServiceBase import Ticker, TickerServiceBase
-from models import Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates
-from models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
-from models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
-from models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
-from models import UpgradesDowngrades, CandleDataMonth, CandleDataWeek, CandleDataDay, CandleData1Hour, CandleData5Minutes, CandleData1Minute
-from CandleDataInterval import CandleDataInterval
-from stock.database import Base
+from stock.src.TickerServiceBase import TickerServiceBase
+from stock.src.models import CandleDataMonth, CandleDataWeek, CandleDataDay, CandleData1Hour, CandleData5Minutes, CandleData1Minute
+from stock.src.CandleDataInterval import CandleDataInterval
+from stock.src.database import Base
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -104,16 +93,21 @@ class CandleService(TickerServiceBase):
         if not self.is_intraday_interval(interval=interval):
             candle_data = candle_data[candle_data['date'].dt.date >= last_date]
             last_data_df = candle_data[candle_data['date'].dt.date == last_date]
-            new_data_df = candle_data[candle_data['date'].dt.date > last_date]
+            new_data_df = candle_data[candle_data['date'].dt.date >= last_date]
         else:
             # For intervals like '1h', '5m', etc., use direct datetime comparison
             candle_data = candle_data[candle_data['date'] >= last_candle.date]
             last_data_df = candle_data[candle_data['date'] == last_candle.date]
             new_data_df = candle_data[candle_data['date'] > last_candle.date]
 
-        # __ update today's record if it already exists __
+        # # __ update today's record if it already exists __
+        # if not last_data_df.empty:
+        #     self.update_last_candle(last_data_df, model_class_name=model_class_name, interval=interval, existing_record=last_candle)
+
+        # __ delete the last record if it exists __
         if not last_data_df.empty:
-            self.update_last_candle(last_data_df, model_class_name=model_class_name, interval=interval, existing_record=last_candle)
+            self.session.delete(last_candle)
+            self.session.commit()
 
         # __ insert the remaining new records __
         if not new_data_df.empty:

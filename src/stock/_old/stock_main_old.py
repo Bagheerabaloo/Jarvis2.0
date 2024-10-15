@@ -6,12 +6,12 @@ from datetime import datetime, date
 from src.common.file_manager.FileManager import FileManager
 
 from sqlalchemy import and_, literal
-from sqlalchemy.orm import sessionmaker, session as sess
-from src.stock.models import Base, Ticker, Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates
-from src.stock.models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
-from src.stock.models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
-from src.stock.models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
-from src.stock.models import UpgradesDowngrades
+from sqlalchemy.orm import session as sess
+from stock.src.models import Base, Ticker, Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates
+from stock.src.models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
+from stock.src.models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
+from stock.src.models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
+from stock.src.models import UpgradesDowngrades
 
 
 def handle_record_update(

@@ -1,9 +1,8 @@
-import re
-from typing import List, Type, Optional
+from typing import List
 
-from src.common.tools.library import class_from_args, int_timestamp_now
+from src.common.tools.library import class_from_args
 from src.common.postgre.PostgreManager import PostgreManager
-from src.stock.StockUser import StockUser
+from stock.src.StockUser import StockUser
 
 
 class StockPostgreManager(PostgreManager):
@@ -36,7 +35,7 @@ class StockPostgreManager(PostgreManager):
 
 if __name__ == '__main__':
     from src.common.file_manager.FileManager import FileManager
-    from src.common.tools.library import run_main, get_environ
+    from src.common.tools.library import get_environ
     from queue import Queue
 
     name = 'Example'

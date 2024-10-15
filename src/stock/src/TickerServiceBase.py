@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import uuid
 from datetime import datetime, date
 from typing import Type, Optional, List
@@ -7,10 +6,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from sqlalchemy.orm import session as sess
-from sqlalchemy.sql import literal, and_
+from sqlalchemy.sql import literal
 from sqlalchemy.inspection import inspect
 
-from models import Base, Ticker
+from stock.src.models import Base, Ticker
 
 
 @dataclass
