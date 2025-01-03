@@ -9,8 +9,9 @@ from sqlalchemy.orm import session as sess
 from sqlalchemy.sql import literal
 from sqlalchemy.inspection import inspect
 
-from stock.src.models import Base, Ticker
+from src.stock.src.models import Base, Ticker
 
+from logger_setup import LOGGER
 
 @dataclass
 class TickerServiceBase:
@@ -22,6 +23,12 @@ class TickerServiceBase:
     session: sess.Session
     symbol: str
     ticker: Ticker = field(default=None, init=False)
+    commit_enable: bool = True
+
+    def commit(self):
+        if self.commit_enable:
+            LOGGER.debug(f"{self.symbol} - {'Commit'.rjust(50)} - COMMITTED successfully.")
+            self.session.commit()
 
     def initialize_ticker(self, ticker: Ticker) -> None:
         """
@@ -82,7 +89,7 @@ class TickerServiceBase:
         except Exception as e:
             # Rollback the transaction in case of an error
             self.session.rollback()
-            print(f"Error occurred: {e}")
+            LOGGER.error(f"Error occurred: {e}")
             return False
 
     @staticmethod
@@ -180,12 +187,12 @@ class TickerServiceBase:
         :param model_class_name: Formatted model class name for logging.
         :param changes_log: List of change logs.
         """
-        self.session.commit()
+        self.commit()
         if not last_record:
-            print(f"{self.ticker.symbol} - {model_class_name} - 1 record inserted.")
+            LOGGER.info(f"{self.ticker.symbol} - {model_class_name} - 1 record inserted.")
         else:
             for change in changes_log:
-                print(change)
+                LOGGER.debug(change)
 
     def log_no_changes(self, model_class_name: str, print_no_changes: bool) -> None:
         """
@@ -195,7 +202,7 @@ class TickerServiceBase:
         :param print_no_changes: Whether to print a message when no changes are detected.
         """
         if print_no_changes:
-            print(f"{self.ticker.symbol} - {model_class_name} - no changes detected")
+            LOGGER.warning(f"{self.ticker.symbol} - {model_class_name} - no changes detected")
 
     """ Generic bulk update handler for database operations. """
     def handle_generic_bulk_update(
@@ -228,6 +235,14 @@ class TickerServiceBase:
             # __ normalize comparison keys __
             normalize_value = self.get_normalize_value_function()
 
+            # __ get columns of table from model __
+            columns = [c.name for c in inspect(model_class).columns]
+            if any(col not in columns for col in new_data_df.columns):
+                additional_columns = [col for col in new_data_df.columns if col not in columns]
+                LOGGER.warning(f"{self.symbol} - {model_class_name} - Found additional columns in the new data: {additional_columns}")
+                # __ remove additional columns from new data __
+                new_data_df = new_data_df.drop(columns=additional_columns)
+
             # __ prepare the list for records to insert __
             records_to_insert = self.compare_and_prepare_inserts(
                 new_data_df,
@@ -242,7 +257,7 @@ class TickerServiceBase:
 
         except Exception as e:
             self.session.rollback()
-            print(f"Error occurred during bulk update: {e}")
+            LOGGER.error(f"Error occurred during bulk update: {e}")
 
     @staticmethod
     def get_primary_keys_columns(model_class: Type[Base]) -> List[str]:
@@ -421,8 +436,8 @@ class TickerServiceBase:
         """
         if records_to_insert:
             self.session.bulk_save_objects(records_to_insert)
-            self.session.commit()
-            print(f"{self.ticker.symbol} - {model_class_name} - {len(records_to_insert)} records inserted.")
+            self.commit()
+            LOGGER.info(f"{self.ticker.symbol} - {model_class_name} - {len(records_to_insert)} records inserted.")
         # else:
         #     print(f"{self.ticker.symbol} - {model_class_name} - no changes detected")
 
@@ -441,4 +456,4 @@ class TickerServiceBase:
 
         # Add all instances to the session and commit
         self.session.bulk_save_objects(instances)
-        self.session.commit()
+        self.commit()

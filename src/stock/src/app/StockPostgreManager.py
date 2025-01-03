@@ -2,7 +2,7 @@ from typing import List
 
 from src.common.tools.library import class_from_args
 from src.common.postgre.PostgreManager import PostgreManager
-from stock.src.StockUser import StockUser
+from stock.src.app.StockUser import StockUser
 
 
 class StockPostgreManager(PostgreManager):

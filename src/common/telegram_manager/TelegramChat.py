@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List
-from common.telegram_manager.TelegramFunction import TelegramFunction
-from common.telegram_manager.TelegramMessage import TelegramMessage
+from src.common.telegram_manager.TelegramFunction import TelegramFunction
+from src.common.telegram_manager.TelegramMessage import TelegramMessage
 
 
 @dataclass

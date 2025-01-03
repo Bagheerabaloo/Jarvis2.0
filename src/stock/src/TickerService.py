@@ -1,18 +1,22 @@
+import numpy as np
 import pandas as pd
 from datetime import date
 from typing import Optional
+from datetime import datetime, date
 from dataclasses import dataclass, field
 
 from sqlalchemy.sql import and_
 
-from stock.src.TickerServiceBase import Ticker, TickerServiceBase
-from stock.src.models import Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates
-from stock.src.models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
-from stock.src.models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
-from stock.src.models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
-from stock.src.models import UpgradesDowngrades
-from stock.src.CandleService import CandleService
-from stock.src.CandleDataInterval import CandleDataInterval
+from src.stock.src.TickerServiceBase import Ticker, TickerServiceBase
+from src.stock.src.models import Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates
+from src.stock.src.models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
+from src.stock.src.models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
+from src.stock.src.models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
+from src.stock.src.models import UpgradesDowngrades
+from src.stock.src.CandleService import CandleService
+from src.stock.src.CandleDataInterval import CandleDataInterval
+
+from logger_setup import LOGGER
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -23,7 +27,9 @@ class TickerService(TickerServiceBase):
 
     """ Handle the insertion or update of a Ticker record in the database. """
     def handle_ticker(self, info: dict) -> bool:
-        ticker_data = {"symbol": self.symbol, "company_name": info["longName"], "business_summary": info["longBusinessSummary"] if "longBusinessSummary" in info else None}
+        company_name = info.get('longName', None)
+        business_summary = info.get('longBusinessSummary', None)
+        ticker_data = {"symbol": self.symbol, "company_name": company_name, "business_summary": business_summary}
         try:
             # __ check if the ticker already exists __
             existing_ticker: Optional[Ticker] = self.session.query(Ticker).filter_by(symbol=ticker_data['symbol']).first()
@@ -35,10 +41,11 @@ class TickerService(TickerServiceBase):
             # __ create a new instance of the Ticker class if it does not exist __
             self.create_new_ticker(ticker_data)
             return True
-
+        except RuntimeError as e:
+                LOGGER.error(f"{e}")
         except Exception as e:
             self.session.rollback()
-            print(f"Error occurred: {e}")
+            LOGGER.error(f"{self.symbol} - Error updating or inserting ticker: {e}")
 
         return False
 
@@ -66,14 +73,24 @@ class TickerService(TickerServiceBase):
 
         # Only commit and print updates if there are changes
         if updated_fields:
-            self.session.commit()  # Commit the changes
-            print(f"{ticker_data['symbol']} - {'Ticker'.rjust(50)} - UPDATED successfully.")
+            self.commit()  # Commit the changes
+            LOGGER.info(f"{ticker_data['symbol']} - {'Ticker'.rjust(50)} - UPDATED successfully.")
             for field_, (old_value, new_value) in updated_fields.items():
-                print(f" - {field_}: {old_value} -> {new_value}")
-            return True
+                LOGGER.debug(f" - {field_}: {old_value} -> {new_value}")
 
-        # print(f"{ticker_data['symbol']} - {'Ticker'.rjust(50)} - no changes detected")
-        return False
+        return True
+
+    def final_update_ticker(self) -> bool:
+        # __ check if the ticker already exists __
+        existing_ticker: Optional[Ticker] = self.session.query(Ticker).filter_by(symbol=self.symbol).first()
+
+        # __ update the existing ticker if it exists __
+        if not existing_ticker:
+            return False
+
+        existing_ticker.last_update = datetime.now()
+        self.commit()  # Commit the changes
+        return True
 
     def create_new_ticker(self, ticker_data: dict) -> None:
         """
@@ -83,8 +100,8 @@ class TickerService(TickerServiceBase):
         """
         new_ticker = Ticker(**ticker_data)
         self.session.add(new_ticker)
-        self.session.commit()
-        print(f"{ticker_data['symbol']} - {'Ticker'.rjust(50)} - ADDED successfully.")
+        self.commit()
+        LOGGER.info(f"{ticker_data['symbol']} - {'Ticker'.rjust(50)} - ADDED successfully.")
         self.initialize_ticker(ticker=new_ticker)  # initialize Ticker attribute
 
     def initialize_ticker(self, ticker: Ticker) -> None:
@@ -97,7 +114,7 @@ class TickerService(TickerServiceBase):
         self.initialize_candle_service()  # initialize CandleService
 
     def initialize_candle_service(self):
-        self.candle_service = CandleService(session=self.session, symbol=self.ticker.symbol)  # initialize CandleService
+        self.candle_service = CandleService(session=self.session, symbol=self.ticker.symbol, commit_enable=self.commit_enable)  # initialize CandleService
         self.candle_service.initialize_ticker(ticker=self.ticker)  # initialize CandleService ticker attribute
 
     """Handle of all other information"""
@@ -112,7 +129,7 @@ class TickerService(TickerServiceBase):
 
         # __ if balance_sheet is empty, return __
         if balance_sheet.empty:
-            print(f"{self.ticker.symbol} - {'Balance Sheet'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Balance Sheet'.rjust(50)} - no data to insert")
             return None
 
         # Transpose the DataFrame to have dates as rows
@@ -213,13 +230,13 @@ class TickerService(TickerServiceBase):
                     # Add the object to the session
                     self.session.add(new_balance_sheet)
                     # Commit the session to the database
-                    self.session.commit()
-                    print(f"{self.ticker.symbol} - {'Balance Sheet'.rjust(50)} - inserted balance sheet for date {date_} ({period_type})")
+                    self.commit()
+                    LOGGER.info(f"{self.ticker.symbol} - {'Balance Sheet'.rjust(50)} - inserted balance sheet for date {date_} ({period_type})")
 
                 except Exception as e:
                     # Rollback the transaction in case of an error
                     self.session.rollback()
-                    print(f"Error occurred: {e}")
+                    LOGGER.error(f"Error occurred: {e}")
 
     def handle_cash_flow(self, cash_flow: pd.DataFrame, period_type: str) -> None:
         """
@@ -231,7 +248,7 @@ class TickerService(TickerServiceBase):
 
         # __ if cash_flow is empty, return __
         if cash_flow.empty:
-            print(f"{self.ticker.symbol} - {'Cash Flow'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Cash Flow'.rjust(50)} - no data to insert")
             return None
 
         # Transpose the DataFrame to have dates as rows
@@ -323,13 +340,13 @@ class TickerService(TickerServiceBase):
                     # Add the object to the session
                     self.session.add(new_cash_flow)
                     # Commit the session to the database
-                    self.session.commit()
-                    print(f"{self.ticker.symbol} - {'Cash Flow'.rjust(50)} - inserted cash flow for date {date_} ({period_type})")
+                    self.commit()
+                    LOGGER.info(f"{self.ticker.symbol} - {'Cash Flow'.rjust(50)} - inserted cash flow for date {date_} ({period_type})")
 
                 except Exception as e:
                     # Rollback the transaction in case of an error
                     self.session.rollback()
-                    print(f"Error occurred: {e}")
+                    LOGGER.error(f"Error occurred: {e}")
 
     def handle_financials(self, financials: pd.DataFrame, period_type: str) -> None:
         """
@@ -341,7 +358,7 @@ class TickerService(TickerServiceBase):
 
         # __ if financials is empty, return __
         if financials.empty:
-            print(f"{self.ticker.symbol} - {'Financials'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Financials'.rjust(50)} - no data to insert")
             return None
 
         # Transpose the DataFrame to have dates as rows
@@ -419,13 +436,13 @@ class TickerService(TickerServiceBase):
                     # Add the object to the session
                     self.session.add(new_financial)
                     # Commit the session to the database
-                    self.session.commit()
-                    print(f"{self.ticker.symbol} - {'Financials'.rjust(50)} - inserted financials for date {date_} ({period_type})")
+                    self.commit()
+                    LOGGER.info(f"{self.ticker.symbol} - {'Financials'.rjust(50)} - inserted financials for date {date_} ({period_type})")
 
                 except Exception as e:
                     # Rollback the transaction in case of an error
                     self.session.rollback()
-                    print(f"Error occurred: {e}")
+                    LOGGER.error(f"Error occurred: {e}")
 
     def handle_actions(self, actions: pd.DataFrame) -> None:
         """
@@ -436,7 +453,7 @@ class TickerService(TickerServiceBase):
 
         # __ if actions is empty, return __
         if actions.empty:
-            print(f"{self.ticker.symbol} - {'Actions'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Actions'.rjust(50)} - no data to insert")
             return None
 
         # __ rename and reset the index and convert it to date __
@@ -464,7 +481,7 @@ class TickerService(TickerServiceBase):
 
         # __ if calendar is empty, return __
         if not calendar or not any(calendar.values()):
-            print(f"{self.ticker.symbol} - {'Calendar'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Calendar'.rjust(50)} - no data to insert")
             return None
 
         new_record_data = {
@@ -492,7 +509,7 @@ class TickerService(TickerServiceBase):
 
         # __ if earnings_dates is empty, return __
         if earnings_dates.empty:
-            print(f"{self.ticker.symbol} - {'Earnings Dates'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Earnings Dates'.rjust(50)} - no data to insert")
             return None
 
         # __ rename and reset the index and convert it to date __
@@ -542,7 +559,7 @@ class TickerService(TickerServiceBase):
 
         # __ if info_data is empty, return __
         if not info_data:
-            print(f"{self.ticker.symbol} - {'Company Address'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Company Address'.rjust(50)} - no data to insert")
             return None
 
         # Prepare the new record data with default values as None
@@ -572,13 +589,17 @@ class TickerService(TickerServiceBase):
 
         # __ if info_data is empty, return __
         if not info_data:
-            print(f"{self.ticker.symbol} - {'Sector Industry History'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Sector Industry History'.rjust(50)} - no data to insert")
             return None
 
         new_record_data = {
             'sector': info_data.get('sector', None),
             'industry': info_data.get('industry', None)
         }
+
+        if new_record_data['sector'] is None or new_record_data['industry'] is None:
+            LOGGER.warning(f"{self.ticker.symbol} - {'Sector Industry History'.rjust(50)} - no data to insert")
+            return None
 
         self.handle_generic_record_update(
             new_record_data=new_record_data,
@@ -594,7 +615,7 @@ class TickerService(TickerServiceBase):
 
         # __ if info_data is empty, return __
         if not info_data:
-            print(f"{self.ticker.symbol} - {'Target Price and Recommendation'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Target Price and Recommendation'.rjust(50)} - no data to insert")
             return None
 
         new_record_data = {
@@ -621,7 +642,7 @@ class TickerService(TickerServiceBase):
 
         # __ if info_data is empty, return __
         if not info_data:
-            print(f"{self.ticker.symbol} - {'Governance'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Governance'.rjust(50)} - no data to insert")
             return None
 
         # Prepare the new record data for InfoGovernance
@@ -651,7 +672,7 @@ class TickerService(TickerServiceBase):
 
         # __ if info_data is empty, return __
         if not info_data:
-            print(f"{self.ticker.symbol} - {'Cash and Financial Ratios'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Cash and Financial Ratios'.rjust(50)} - no data to insert")
             return None
 
         new_record_data = {
@@ -690,7 +711,7 @@ class TickerService(TickerServiceBase):
 
         # __ if info_data is empty, return __
         if not info_data:
-            print(f"{self.ticker.symbol} - {'Market and Financial Metrics'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Market and Financial Metrics'.rjust(50)} - no data to insert")
             return None
 
         # Extract the new data from the info_data dictionary
@@ -762,7 +783,7 @@ class TickerService(TickerServiceBase):
 
         # __ if info_data is empty, return __
         if not info_data:
-            print(f"{self.ticker.symbol} - {'General Stock Info'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'General Stock Info'.rjust(50)} - no data to insert")
             return None
 
         # Prepare the new record data combining both info_data and metadata_data
@@ -811,7 +832,7 @@ class TickerService(TickerServiceBase):
 
         # __ if info is empty, return __
         if not info:
-            print(f"{self.ticker.symbol} - {'Trading Session Info'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Trading Session Info'.rjust(50)} - no data to insert")
             return None
 
         # Prepare the new record data with default values as None
@@ -856,6 +877,10 @@ class TickerService(TickerServiceBase):
             'two_hundred_day_average': info.get('twoHundredDayAverage', None)
         }
 
+        if type(new_record_data['trailing_pe']) == str:
+            new_record_data['trailing_pe'] = np.nan
+            LOGGER.warning(f"{self.ticker.symbol} - {'Info Trading Session'.rjust(50)} - trailing_pe converted to np.nan")
+
         # Call the generic function to handle insert/update
         self.handle_generic_record_update(
             new_record_data=new_record_data,
@@ -871,7 +896,7 @@ class TickerService(TickerServiceBase):
 
         # __ if insider_purchases is empty, return __
         if insider_purchases.empty:
-            print(f"{self.ticker.symbol} - {'Insider Purchases'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Insider Purchases'.rjust(50)} - no data to insert")
             return None
 
         # __ substitute NaN values with 0 in the 'Shares' column __
@@ -947,7 +972,7 @@ class TickerService(TickerServiceBase):
 
         # __ if insider_roster_holders is empty, return __
         if insider_roster_holders.empty:
-            print(f"{self.ticker.symbol} - {'Insider Roster Holders'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Insider Roster Holders'.rjust(50)} - no data to insert")
             return None
 
         # insider_roster_holders['Shares Owned Directly'] = insider_roster_holders['Shares Owned Directly'].apply(lambda x: int(x) if not pd.isna(x) else x)
@@ -955,6 +980,8 @@ class TickerService(TickerServiceBase):
 
         # __ normalize column names to match SQLAlchemy model attributes __
         insider_roster_holders.columns = [col.lower().replace(' ', '_') for col in insider_roster_holders.columns]
+        if 'shares_owned_directly' not in insider_roster_holders.columns:
+            insider_roster_holders['shares_owned_directly'] = None
         if 'shares_owned_indirectly' not in insider_roster_holders.columns:
             insider_roster_holders['shares_owned_indirectly'] = None
         if 'position_indirect_date' not in insider_roster_holders.columns:
@@ -980,7 +1007,7 @@ class TickerService(TickerServiceBase):
 
         # __ if insider_transactions is empty, return __
         if insider_transactions.empty:
-            print(f"{self.ticker.symbol} - {'Insider Transactions'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Insider Transactions'.rjust(50)} - no data to insert")
             return None
 
         # __ normalize column names to match SQLAlchemy model attributes __
@@ -1004,12 +1031,12 @@ class TickerService(TickerServiceBase):
 
         # __ if institutional_holders is empty, return __
         if institutional_holders.empty:
-            print(f"{self.ticker.symbol} - {'Institutional Holders'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Institutional Holders'.rjust(50)} - no data to insert")
             return None
 
         # __ check if the DataFrame is empty __
         if institutional_holders.empty:
-            print(f"{self.ticker.symbol} - {'Institutional Holders'.rjust(50)} - no data to process")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Institutional Holders'.rjust(50)} - no data to process")
             return
 
         # __ normalize column names to match SQLAlchemy model attributes __
@@ -1038,16 +1065,23 @@ class TickerService(TickerServiceBase):
 
         # __ if major_holders is empty, return __
         if major_holders.empty:
-            print(f"{self.ticker.symbol} - {'Major Holders'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Major Holders'.rjust(50)} - no data to insert")
             return None
 
         # Ensure the DataFrame has the correct structure
         if major_holders.empty or major_holders.index.empty:
-            print("Major holders DataFrame is empty or does not have the correct structure.")
+            LOGGER.warning("Major holders DataFrame is empty or does not have the correct structure.")
             return
 
         # Transpose the DataFrame to switch columns to rows
         major_holders = major_holders.T
+
+        if 'insidersPercentHeld' not in major_holders.columns or \
+            'institutionsPercentHeld' not in major_holders.columns or \
+            'institutionsFloatPercentHeld' not in major_holders.columns or \
+            'institutionsCount' not in major_holders.columns:
+            LOGGER.warning(f"{self.ticker.symbol} - {'Major Holders'.rjust(50)} - missing columns - not updated")
+            return None
 
         # Extract the relevant values into a dictionary
         new_record_data = {
@@ -1072,7 +1106,7 @@ class TickerService(TickerServiceBase):
 
         # __ if mutual_fund_holders is empty, return __
         if mutual_fund_holders.empty:
-            print(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to insert")
             return None
 
         # Normalize column names to match SQLAlchemy model attributes
@@ -1106,7 +1140,7 @@ class TickerService(TickerServiceBase):
             )
 
         if not changed:
-            print(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no changes detected")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no changes detected")
 
     def handle_mutual_fund_holders(self, mutual_fund_holders: pd.DataFrame) -> None:
         """
@@ -1117,12 +1151,12 @@ class TickerService(TickerServiceBase):
 
         # __ if mutual_fund_holders is empty, return __
         if mutual_fund_holders.empty:
-            print(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to process")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to process")
             return None
 
         # __ check if the DataFrame is empty __
         if mutual_fund_holders.empty:
-            print(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to process")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to process")
             return
 
         # __ normalize column names to match SQLAlchemy model attributes __
@@ -1151,7 +1185,7 @@ class TickerService(TickerServiceBase):
 
         # __ if recommendations is empty, return __
         if recommendations.empty:
-            print(f"{self.ticker.symbol} - {'Recommendations'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Recommendations'.rjust(50)} - no data to insert")
             return None
 
         # Normalize column names to match SQLAlchemy model attributes
@@ -1209,7 +1243,7 @@ class TickerService(TickerServiceBase):
 
         # __ if upgrades_downgrades is empty, return __
         if upgrades_downgrades.empty:
-            print(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no data to insert")
             return None
 
         # __ rename index to 'date' and reset the index to make it a column __
@@ -1248,7 +1282,7 @@ class TickerService(TickerServiceBase):
             )
 
         if not changed:
-            print(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no changes detected")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no changes detected")
 
     def handle_upgrades_downgrades(self, upgrades_downgrades: pd.DataFrame) -> None:
         """
@@ -1259,7 +1293,7 @@ class TickerService(TickerServiceBase):
 
         # __ if upgrades_downgrades is empty, return __
         if upgrades_downgrades.empty:
-            print(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no data to insert")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no data to insert")
             return None
 
         # __ rename index to 'date' and reset the index to make it a column __

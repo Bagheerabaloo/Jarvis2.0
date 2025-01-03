@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 
 from src.common.tools.library import safe_execute
 
-from stock.src.TickerServiceBase import TickerServiceBase
-from stock.src.models import CandleDataMonth, CandleDataWeek, CandleDataDay, CandleData1Hour, CandleData5Minutes, CandleData1Minute
-from stock.src.CandleDataInterval import CandleDataInterval
-from stock.src.database import Base
+from src.stock.src.TickerServiceBase import TickerServiceBase
+from src.stock.src.models import CandleDataMonth, CandleDataWeek, CandleDataDay, CandleData1Hour, CandleData5Minutes, CandleData1Minute
+from src.stock.src.CandleDataInterval import CandleDataInterval
+from src.stock.src.database import Base
+
+from logger_setup import LOGGER
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -70,7 +72,7 @@ class CandleService(TickerServiceBase):
 
         # __ check if the candle data is empty __
         if candle_data is None or candle_data.empty:
-            print(f"{self.ticker.symbol} - {'Candle Data'.rjust(50)} - no new candle data available")
+            LOGGER.warning(f"{self.ticker.symbol} - {'Candle Data'.rjust(50)} - no new candle data available")
             return
 
         # __ prepare the candle data for insertion or update __
@@ -222,7 +224,7 @@ class CandleService(TickerServiceBase):
         period = self.select_period_based_on_interval(time_difference, interval)
 
         # __ print the selected period for debugging __
-        print(f"{self.ticker.symbol} - {'CandleData'.rjust(50)} - Selected period based on {time_difference} \"{interval}\" units: {period}")
+        LOGGER.debug(f"{self.ticker.symbol} - {'CandleData'.rjust(50)} - Selected period based on {time_difference} \"{interval}\" units: {period}")
 
         return period
 
@@ -379,12 +381,12 @@ class CandleService(TickerServiceBase):
                 for key, value in new_data.items():
                     setattr(existing_record, key, value)
                 self.session.commit()
-                print(f"{self.ticker.symbol} - {model_class_name.rjust(50)} - UPDATED record for \"{interval}\" on {new_data['date']}.")
+                LOGGER.warning(f"{self.ticker.symbol} - {model_class_name.rjust(50)} - UPDATED record for \"{interval}\" on {new_data['date']}.")
                 for change in changes_log:  # TODO: reuse the generic function
-                    print(change)
+                    LOGGER.debug(change)
             else:
-                print(f"{self.ticker.symbol} - {model_class_name.rjust(50)} - No changes detected for \"{interval}\" on {new_data['date']}.")
+                LOGGER.warning(f"{self.ticker.symbol} - {model_class_name.rjust(50)} - No changes detected for \"{interval}\" on {new_data['date']}.")
 
         except Exception as e:
             self.session.rollback()
-            print(f"Error occurred while updating today's candle: {e}")
+            LOGGER.error(f"Error occurred while updating today's candle: {e}")

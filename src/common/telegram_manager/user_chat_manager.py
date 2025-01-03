@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from typing import Optional, Type, TYPE_CHECKING
 
-from common.functions.FunctionStart import FunctionStart
+from src.common.functions.FunctionStart import FunctionStart
 
-from common.telegram_manager.telegram_manager import TelegramManager, LOGGER
-from common.telegram_manager.TelegramMessage import TelegramMessage
-from common.telegram_manager.TelegramUser import TelegramUser
-from common.telegram_manager.TelegramChat import TelegramChat
+from src.common.telegram_manager.telegram_manager import TelegramManager, LOGGER
+from src.common.telegram_manager.TelegramMessage import TelegramMessage
+from src.common.telegram_manager.TelegramUser import TelegramUser
+from src.common.telegram_manager.TelegramChat import TelegramChat
 
 
 @dataclass

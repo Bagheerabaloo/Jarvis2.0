@@ -10,7 +10,7 @@ from src.quotes.classes.Quote import Quote
 from src.common.file_manager.FileManager import FileManager
 
 
-def main():
+def back_up():
     # __ init file manager __
     config_manager = FileManager()
     back_up_directory = "data/db_backup"
@@ -86,4 +86,4 @@ def zip_csv_files(directory):
 
 
 if __name__ == '__main__':
-    main()
+    back_up()

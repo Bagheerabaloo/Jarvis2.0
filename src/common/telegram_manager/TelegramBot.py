@@ -3,11 +3,11 @@ import telegram
 from dataclasses import dataclass, field
 from time import sleep
 
-from common.telegram_manager.TelegramUser import TelegramUser
-from common.telegram_manager.TelegramChat import TelegramChat
+from src.common.telegram_manager.TelegramUser import TelegramUser
+from src.common.telegram_manager.TelegramChat import TelegramChat
 
 # TODO: create new files in common package
-from common.tools import print_exception, get_exception
+from src.common.tools import print_exception, get_exception
 # from src.Tools.logging_class import LoggerObj
 
 

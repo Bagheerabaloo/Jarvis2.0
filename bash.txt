@@ -1,0 +1,61 @@
+--------- POSTGRES ----------
+pg_dump -U postgres -d stock -t info_trading_session -f info_trading_session_backup.sql
+pg_dump -U postgres -d stock -t ticker -f data/db_backup/ticker.sql
+
+
+--------- ALEMBIC -----------
+1. Initialize Alembic
+This creates an alembic directory and an alembic.ini configuration file.
+
+    alembic init alembic
+
+
+2. Configure alembic.ini
+Update the sqlalchemy.url parameter in the alembic.ini file to point to your database:
+
+    sqlalchemy.url = postgresql://username:password@localhost:5432/stock
+
+
+3. Update env.py
+In the env.py file, link your SQLAlchemy models by importing the Base metadata from your project:
+
+    from your_project.models import Base
+    target_metadata = Base.metadata
+
+
+4. Generate a new migration
+To create a migration for database changes:
+
+    alembic revision --autogenerate -m "Initial migration"
+
+5. Apply the migration
+To apply the migration and bring the database schema up to date:
+
+    alembic upgrade head
+
+
+6. Create a new revision for column updates
+When you needed to modify column precision, you generated a new migration:
+
+    alembic revision --autogenerate -m "Increase precision of Numeric fields"
+
+7. Modify the migration file
+Edit the generated migration file to specify the upgrade and downgrade logic. For example:
+
+def upgrade() -> None:
+    ...
+
+def downgrade() -> None:
+    ......
+
+8. Apply the new migration
+Run the following command to apply the updated migration:
+
+    alembic upgrade head
+
+
+9. Roll back the migration (if needed)
+If you need to undo the migration:
+
+    alembic downgrade -1
+

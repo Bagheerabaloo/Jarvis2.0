@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
 
 from src.common.functions.Function import Function
-from src.common.telegram.TelegramUser import TelegramUser
-from stock.src.StockUser import StockUser
-from stock.src.StockPostgreManager import StockPostgreManager
+from src.common.telegram_manager.TelegramUser import TelegramUser
+from stock.src.app.StockUser import StockUser
+from stock.src.app.StockPostgreManager import StockPostgreManager
 
 
 @dataclass
@@ -17,7 +17,7 @@ class StockFunction(Function):
 
     @property
     def default_keyboard(self):
-        return [['Callback'], ['showQuotes', 'showNotes']]
+        return [['dailyGainers', 'rows'], ['back']]
 
     @property
     def app_user(self):

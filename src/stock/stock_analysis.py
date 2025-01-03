@@ -1,3 +1,4 @@
+import yfinance as yf
 import pandas as pd
 from sqlalchemy import func, desc
 from sqlalchemy.orm import aliased
@@ -299,12 +300,42 @@ def get_sp500_worst_performing_stocks(_session) -> pd.DataFrame:
     return filtered_df
 
 
+def get_daily_gainers_losers(_session):
+    import asyncio
+    from src.common.telegram_manager.TelegramBot import TelegramBot
+    from src.common.file_manager.FileManager import FileManager
+
+    # __ get the S&P 500 symbols __
+    sp500_handler = SP500Handler()
+    tickers = sp500_handler.get_sp500_from_wikipedia()
+
+    data = yf.download(tickers, period="5d", interval="1d")["Adj Close"]
+    daily_returns = data.pct_change().iloc[-1].reset_index()
+    daily_returns.rename(columns={daily_returns.columns[1]: 'Daily Return'}, inplace=True)
+    sorted_gainers = daily_returns.sort_values(by=["Daily Return"], ascending=False)
+    sorted_gainers["Daily Return"] = sorted_gainers["Daily Return"] * 100
+    print("Top 5 daily gainers:")
+    print(sorted_gainers.head(5))
+    print("\nTop 5 daily losers:")
+    print(sorted_gainers.tail(5))
+
+    telegram_token_key = "TELEGRAM_TOKEN"
+    config_manager = FileManager()
+    token = config_manager.get_telegram_token(database_key=telegram_token_key)
+    admin_info = config_manager.get_admin()
+    telegram_bot = TelegramBot(token=token)
+
+    text1 = "Top 5 daily gainers:\n" + '\n'.join([f"{row['Ticker']}:    {round(row['Daily Return'],2)}%" for index, row in sorted_gainers.head(5).iterrows()])
+    text2 = "Top 5 daily losers:\n" + '\n'.join([f"{row['Ticker']}:    {round(row['Daily Return'],2)}%" for index, row in sorted_gainers.tail(5).sort_values(by=["Daily Return"]).iterrows()])
+    asyncio.run(telegram_bot.send_message(chat_id=admin_info["chat"], text=f"{text1}\n\n{text2}"))
+
+
 if __name__ == "__main__":
     # __ sqlAlchemy __ create new session
     session = session_local()
 
     # __ update analysis __
-    # update_analysis(_session=session)
+    update_analysis(_session=session)
 
     # __ get the historical percentage of S&P 500 stocks above 200 ma __
     # df = get_sp500_historical_percentage_above_200_ma(_session=session)
@@ -316,10 +347,13 @@ if __name__ == "__main__":
     # df = get_sp500_worst_performing_stocks(_session=session)
 
     # __ get the outstanding shares history for a specific ticker __
-    df = get_outstanding_shares_history_for_ticker_from_db(_session=session, _symbol="AMZN")
+    # df = get_outstanding_shares_history_for_ticker_from_db(_session=session, _symbol="AMZN")
+
+    # __ get the daily gainers and losers for the S&P 500 stocks __
+    # df = get_daily_gainers_losers(_session=session)
 
     # __analysis 2 __
-    build_sp_500_value(_session=session)
+    # build_sp_500_value(_session=session)
 
 
 

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from stock.src.functions.StockFunction import StockFunction
+from stock.src.app.stock_functions.StockFunction import StockFunction
 
 
 @dataclass

@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, Numeric, ForeignKey, Index, UniqueConstraint
 from sqlalchemy import Float, BigInteger, Date, DateTime, UUID as SA_UUID
 from sqlalchemy.orm import relationship
-from stock.src.database import Base
+from src.stock.src.database import Base
 
 
 class Ticker(Base):
@@ -11,6 +11,7 @@ class Ticker(Base):
     symbol = Column(String(10), unique=True, nullable=False)  # Ticker symbol (e.g., AAPL)
     company_name = Column(Text)  # Full company name
     business_summary = Column(Text)  # Business summary description
+    last_update = Column(DateTime)  # Timestamp to track when the data was recorded
 
     # Relationships
     actions = relationship("Action", back_populates="ticker", cascade="all, delete-orphan")
@@ -400,9 +401,9 @@ class InfoCashAndFinancialRatios(Base):
     ebitda = Column(BigInteger)                                     # EBITDA
     total_revenue = Column(BigInteger)                              # Total revenue
     revenue_per_share = Column(Numeric(9, 3))           # Revenue per share: precision 7, scale 3
-    gross_margins = Column(Numeric(11, 10))               # Gross margins: precision 6, scale 5
-    ebitda_margins = Column(Numeric(11, 10))              # EBITDA margins: precision 6, scale 5
-    operating_margins = Column(Numeric(11, 10))           # Operating margins: precision 6, scale 5
+    gross_margins = Column(Numeric(15, 10))               # Gross margins: precision 6, scale 5
+    ebitda_margins = Column(Numeric(15, 10))              # EBITDA margins: precision 6, scale 5
+    operating_margins = Column(Numeric(15, 10))           # Operating margins: precision 6, scale 5
 
     # __ Growth Metrics __
     earnings_growth = Column(Numeric(6, 3))             # Earnings growth: precision 6, scale 3
@@ -556,15 +557,15 @@ class InfoTradingSession(Base):
     regular_market_volume = Column(BigInteger, nullable=True)                      # Regular market volume    - this changes during trading session
 
     # *** from basic_info ***
-    last_price = Column(Numeric(19, 15), nullable=True)         # Last traded price (more precise than current price)   - this changes during trading session
+    last_price = Column(Numeric(21, 15), nullable=True)         # Last traded price (more precise than current price)   - this changes during trading session
     last_volume = Column(BigInteger, nullable=True)                         # Last traded volume                                    - this changes during trading session
 
     # *** from basic info *** should be dynamic but are static
     ten_day_average_volume = Column(BigInteger, nullable=True)  # Ten day average volume
     three_month_average_volume = Column(BigInteger, nullable=True)  # Three-month average volume
     year_change = Column(Numeric(19, 18), nullable=True)  # Yearly change
-    year_high = Column(Numeric(19, 15), nullable=True)  # Yearly high       - this info is not updated for more than one trading day
-    year_low = Column(Numeric(19, 15), nullable=True)  # Yearly low        - this info is not updated for more than one trading day
+    year_high = Column(Numeric(21, 15), nullable=True)  # Yearly high       - this info is not updated for more than one trading day
+    year_low = Column(Numeric(21, 15), nullable=True)  # Yearly low        - this info is not updated for more than one trading day
 
     # *** from info ***
     current_price = Column(Numeric(10, 4), nullable=True)  # Current price of the stock
@@ -586,8 +587,8 @@ class InfoTradingSession(Base):
     price_to_book = Column(Numeric(14, 10), nullable=True)  # Price to book
 
     # *** from info *** should be dynamic but for now is static
-    fifty_day_average = Column(Numeric(11, 6), nullable=True)         # 50-day average price     - this is fixed to last close (yesterday)
-    two_hundred_day_average = Column(Numeric(10, 5), nullable=True)   # 200-day average price    - this is fixed to last close (yesterday)
+    fifty_day_average = Column(Numeric(13, 6), nullable=True)         # 50-day average price     - this is fixed to last close (yesterday)
+    two_hundred_day_average = Column(Numeric(13, 5), nullable=True)   # 200-day average price    - this is fixed to last close (yesterday)
 
     # Define relationship to the Ticker class
     ticker = relationship("Ticker", back_populates="info_trading_session")

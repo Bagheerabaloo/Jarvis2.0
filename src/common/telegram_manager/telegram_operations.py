@@ -6,12 +6,12 @@ from threading import Thread, current_thread
 from time import sleep
 from typing import Optional, List, Type, TYPE_CHECKING
 
-from common.functions.Function import Function
-from common.functions.FunctionSendCallback import FunctionSendCallback
+from src.common.functions.Function import Function
+from src.common.functions.FunctionSendCallback import FunctionSendCallback
 
-from common.telegram_manager.telegram_manager import TelegramManager, LOGGER
-from common.telegram_manager.TelegramMessage import TelegramMessage
-from common.telegram_manager.TelegramMessageType import TelegramMessageType
+from src.common.telegram_manager.telegram_manager import TelegramManager, LOGGER
+from src.common.telegram_manager.TelegramMessage import TelegramMessage
+from src.common.telegram_manager.TelegramMessageType import TelegramMessageType
 
 
 @dataclass

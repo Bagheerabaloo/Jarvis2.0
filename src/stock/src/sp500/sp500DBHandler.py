@@ -10,9 +10,9 @@ from sqlalchemy.orm import session as sess
 from sqlalchemy import text
 
 from src.common.tools.library import seconds_to_time, safe_execute
-from stock.src.TickerService import TickerService
-from stock.src.database import session_local
-from stock.src.models import SP500Changes, SP500Historical
+from src.stock.src.TickerService import TickerService
+from src.stock.src.database import session_local
+from src.stock.src.models import SP500Changes, SP500Historical
 
 session = session_local()
 
@@ -299,8 +299,6 @@ def update_sp500_historical_from_change():
         new_historical = new_historical[new_historical.index > last_date]
         # __ save new snapshot of S&P 500 historical components __
         save_new_sp500_historical(new_historical.copy())
-
-update_sp500_historical_from_change()
 
 
 

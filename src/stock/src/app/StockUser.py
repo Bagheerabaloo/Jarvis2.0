@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from src.common.telegram.TelegramUser import TelegramUser
+from src.common.telegram_manager.TelegramUser import TelegramUser
 
 
 @dataclass

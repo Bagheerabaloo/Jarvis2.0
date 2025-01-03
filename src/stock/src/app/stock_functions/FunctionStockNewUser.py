@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
-from src.common.telegram.TelegramUser import TelegramUser
+from src.common.telegram_manager.TelegramUser import TelegramUser
 from src.common.functions.FunctionAppNewUser import FunctionAppNewUser
-from stock.src.functions.StockFunction import StockFunction
+from stock.src.app.stock_functions.StockFunction import StockFunction
 
 
 @dataclass

@@ -1,0 +1,3 @@
+from stock.src.sp500.sp500DBHandler import update_sp500_historical_from_change
+
+update_sp500_historical_from_change()
