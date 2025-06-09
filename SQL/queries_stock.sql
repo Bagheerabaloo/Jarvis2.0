@@ -60,3 +60,115 @@ WHERE
     schemaname NOT IN ('pg_catalog', 'information_schema')
 ORDER BY
     pg_total_relation_size(schemaname || '.' || tablename) DESC;
+
+
+-- SP500 TICKERS --
+SELECT SP.*, T.symbol, T.id
+FROM sp_500_historical SP
+LEFT JOIN ticker T ON SP.ticker_yfinance = T.symbol
+WHERE date = (
+    SELECT MAX(date)
+    FROM sp_500_historical
+)
+--AND SP.ticker LIKE 'BRK%'
+--AND T.id IS NULL
+;
+
+SELECT *
+FROM ticker
+WHERE symbol LIKE 'BRK%';
+
+SELECT DISTINCT ticker, ticker_yfinance
+FROM sp_500_historical
+WHERE ticker in(
+    SELECT DISTINCT ticker
+    FROM sp_500_historical
+    WHERE ticker LIKE '%.%'
+    )
+;
+
+UPDATE sp_500_historical
+SET ticker_yfinance = REPLACE(ticker, '.', '-');
+
+COMMIT;
+
+
+-- LAST TRADING SESSION
+SELECT t.ticker_id,
+       t.market_cap,
+       t.current_price,
+       t.last_update,
+       t.two_hundred_day_average,
+       t.fifty_two_week_high,
+       t.fifty_two_week_low,
+       t.trailing_pe,
+       t.forward_pe
+FROM (
+    SELECT
+        i.ticker_id,
+        i.market_cap,
+        i.current_price,
+        i.last_update,
+        i.two_hundred_day_average,
+        i.fifty_two_week_high,
+        i.fifty_two_week_low,
+        i.trailing_pe,
+        i.forward_pe,
+        -- Usa ROW_NUMBER() o RANK() a seconda di come vuoi gestire i "pareggi"
+        ROW_NUMBER() OVER (
+            PARTITION BY i.ticker_id
+            ORDER BY i.last_update DESC
+        ) AS rn
+    FROM info_trading_session AS i
+) AS t
+WHERE t.rn = 1;
+
+
+-- LAST TICKER INFO
+SELECT
+    t.id                     AS ticker_id,
+    t.symbol                 AS symbol,
+    t.company_name           AS company_name,
+    t.last_update            AS ticker_last_update,
+
+    -- Data from last_info_general_stock
+    igs.exchange             AS exchange,
+    igs.last_update          AS info_general_last_update,
+
+    -- Data from last_info_trading_session
+    its.market_cap           AS market_cap,
+    its.fifty_two_week_high  AS "52_week_high",
+    its.fifty_two_week_low   AS "52_week_low",
+    its.two_hundred_day_average AS "200MA",
+    its.current_price        AS price,
+    its.last_update          AS info_trading_last_update,
+    its.trailing_pe          AS trailing_pe,
+    its.forward_pe           AS forward_pe,
+
+    -- Data from recent_candle_data_day_view
+    rcd.close                AS close,
+    rcd.last_update          AS candle_day_last_update,
+
+    -- Check S&P500 membership (True/False)
+    CASE
+        WHEN sp.ticker_yfinance IS NOT NULL THEN TRUE
+        ELSE FALSE
+    END                     AS SP500
+
+FROM ticker t
+
+-- LEFT JOIN to last_info_general_stock by ticker_id
+LEFT JOIN mv_last_info_general_stock igs
+       ON igs.ticker_id = t.id
+
+-- LEFT JOIN to last_info_trading_session by ticker_id
+LEFT JOIN mv_last_info_trading_session its
+       ON its.ticker_id = t.id
+
+-- LEFT JOIN to recent_candle_data_day by ticker_id
+LEFT JOIN mv_recent_candle_data_day rcd
+       ON rcd.ticker_id = t.id
+
+-- LEFT JOIN to sp_500_latest_date by symbol
+LEFT JOIN sp_500_latest_date sp
+       ON sp.ticker_yfinance = t.symbol;

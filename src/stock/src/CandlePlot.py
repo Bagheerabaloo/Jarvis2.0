@@ -329,3 +329,51 @@ class CandlePlot:
         plt.show()  # Keep the plot open after the loop
 
 
+# def plot_candles():
+#     import pandas as pd
+#     from src.stock.src.database import engine, session_local
+#     from src.stock.src.TickerService import Ticker
+#     from mpl_finance import candlestick_ohlc
+#     import matplotlib.dates as mpl_dates
+#     from src.common.tools.library import plt
+#
+#     session = session_local()
+#
+#     query = (session.query(CandleDataDay)
+#              .join(Ticker)
+#              .filter(Ticker.symbol == "^SP500EW")
+#              .order_by(CandleDataDay.date.desc())
+#              .limit(1500))
+#
+#     candles = pd.read_sql(query.statement, engine)
+#
+#     # candles['date'] = candles['date'].apply(mpl_dates.date2num)
+#     # candles['date'] = pd.to_datetime(candles['date'])
+#     candles.set_index('date', inplace=True)
+#     candles['date'] = pd.to_datetime(candles.index)
+#     candles['date'] = candles['date'].apply(mpl_dates.date2num)
+#     # candles = candles.astype(float)
+#     candles = candles[['date', 'open', 'high', 'low', 'close', 'volume']]
+#
+#     # Creating Subplots
+#     fig, ax = plt.subplots()
+#
+#     candlestick_ohlc(ax, candles.values, width=0.6, colorup='green', colordown='red', alpha=0.8)
+#
+#     # Setting labels & titles
+#     ax.set_xlabel('Date')
+#     ax.set_ylabel('Price')
+#     fig.suptitle('AAPL')
+#
+#     # Formatting Date
+#     date_format = mpl_dates.DateFormatter('%d-%m-%Y')
+#     ax.xaxis.set_major_formatter(date_format)
+#     ax.set_yscale('log')
+#     fig.autofmt_xdate()
+#
+#     fig.tight_layout()
+#
+#     ax.grid()
+#     plt.show()
+#
+#     session.close()

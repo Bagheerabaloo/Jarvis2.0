@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 from src.common.tools.library import safe_execute
 
 from src.stock.src.TickerServiceBase import TickerServiceBase
-from src.stock.src.models import CandleDataMonth, CandleDataWeek, CandleDataDay, CandleData1Hour, CandleData5Minutes, CandleData1Minute
+from src.stock.src.db.models import CandleDataMonth, CandleDataWeek, CandleDataDay, CandleData1Hour, CandleData5Minutes, CandleData1Minute
 from src.stock.src.CandleDataInterval import CandleDataInterval
-from src.stock.src.database import Base
+from src.stock.src.db.database import Base
 
 from logger_setup import LOGGER
 
@@ -47,7 +47,7 @@ class CandleService(TickerServiceBase):
         return interval in {CandleDataInterval.MINUTE_1, CandleDataInterval.MINUTE_5, CandleDataInterval.HOUR}
 
     """ Handle the insertion or update of candlestick data for a given ticker in the DB"""
-    def handle_candle_data(self, interval: CandleDataInterval) -> None:
+    def handle_candle_data(self, interval: CandleDataInterval) -> bool:
         """
         Handle the bulk update or insertion of candlestick data into the database.
 
@@ -70,10 +70,15 @@ class CandleService(TickerServiceBase):
         # __ download the candle data for the specified interval and period __
         candle_data = self.download_candle_data(interval=interval, period=period)
 
+        # TODO: insert here a check for None or empty DataFrame
+
+        # __ post-process the downloaded data __
+        candle_data = self.post_download(candle_data, ticker=self.ticker.symbol)
+
         # __ check if the candle data is empty __
         if candle_data is None or candle_data.empty:
             LOGGER.warning(f"{self.ticker.symbol} - {'Candle Data'.rjust(50)} - no new candle data available")
-            return
+            return False
 
         # __ prepare the candle data for insertion or update __
         candle_data = self.prepare_candle_data(candle_data, interval)
@@ -84,7 +89,7 @@ class CandleService(TickerServiceBase):
             new_records = self.create_candle_data_list_of_records(df=candle_data, model_class=model_class, interval=interval)
             # __ perform the bulk insert __
             self.bulk_insert_records(records_to_insert=new_records, model_class_name=model_class_name)
-            return None
+            return True
 
         # __ filter out candles that are older than the last_candle's date __
         last_date = last_candle.date
@@ -100,7 +105,7 @@ class CandleService(TickerServiceBase):
             # For intervals like '1h', '5m', etc., use direct datetime comparison
             candle_data = candle_data[candle_data['date'] >= last_candle.date]
             last_data_df = candle_data[candle_data['date'] == last_candle.date]
-            new_data_df = candle_data[candle_data['date'] > last_candle.date]
+            new_data_df = candle_data[candle_data['date'] >= last_candle.date]
 
         # # __ update today's record if it already exists __
         # if not last_data_df.empty:
@@ -117,7 +122,7 @@ class CandleService(TickerServiceBase):
             new_records = self.create_candle_data_list_of_records(df=new_data_df, model_class=model_class, interval=interval)
             # __ perform the bulk insert __
             self.bulk_insert_records(records_to_insert=new_records, model_class_name=model_class_name)
-            return None
+            return True
 
     def download_candle_data(self, interval: CandleDataInterval, period: str) -> Optional[pd.DataFrame]:
         """
@@ -142,7 +147,8 @@ class CandleService(TickerServiceBase):
                 tickers=self.ticker.symbol,
                 interval=interval_str,
                 period=period,
-                progress=False
+                progress=False,
+                auto_adjust=False
             )
         )
 
@@ -151,6 +157,18 @@ class CandleService(TickerServiceBase):
             candle_data.index = candle_data.index.tz_localize('UTC')
 
         return candle_data
+
+    @ staticmethod
+    def post_download(download: pd.DataFrame, ticker: str) -> pd.DataFrame:
+        if isinstance(download.columns, pd.MultiIndex):
+            # __ if the columns are MultiIndex, swap the levels and sort them __
+            data = download.copy()  #  Create a copy to avoid modifying the original DataFrame in-place
+            data.columns = data.columns.swaplevel(0, 1)
+            data = data.sort_index(axis=1)  # Sort the columns to ensure consistency
+            data = data[ticker].copy()
+            return data
+
+        return download
 
     @staticmethod
     def cap_period_based_on_interval(interval: CandleDataInterval, current_period: str) -> str:
@@ -314,7 +332,7 @@ class CandleService(TickerServiceBase):
 
         # Add time zone column to preserve the time zone information
         if self.is_intraday_interval(interval):
-            candle_data['time_zone'] = candle_data['date'].apply(lambda x: x.tzinfo.zone if x.tzinfo else 'UTC')
+            candle_data['time_zone'] = candle_data['date'].apply(lambda x: x.tzinfo.tzname(x) if x.tzinfo else 'UTC')
 
         # __ rename columns to match the model attributes
         candle_data.columns = [col.lower().replace(' ', '_') for col in candle_data.columns]

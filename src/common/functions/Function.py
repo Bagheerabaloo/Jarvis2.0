@@ -3,13 +3,13 @@ from src.common.tools.library import to_int
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from common.telegram_manager.TelegramBot import TelegramBot
-from common.telegram_manager.TelegramChat import TelegramChat
-from common.telegram_manager.TelegramFunction import TelegramFunction
-from common.telegram_manager.TelegramMessage import TelegramMessage
-from common.telegram_manager.TelegramUser import TelegramUser
+from src.common.telegram_manager.TelegramBot import TelegramBot
+from src.common.telegram_manager.TelegramChat import TelegramChat
+from src.common.telegram_manager.TelegramFunction import TelegramFunction
+from src.common.telegram_manager.TelegramMessage import TelegramMessage
+from src.common.telegram_manager.TelegramUser import TelegramUser
 
-from common.postgre.PostgreManager import PostgreManager
+from src.common.postgre.PostgreManager import PostgreManager
 
 
 @dataclass

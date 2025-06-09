@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 
 import yfinance as yf
-from src.stock.src.database import session_local
+from src.stock.src.db.database import session_local
 
 
 @dataclass

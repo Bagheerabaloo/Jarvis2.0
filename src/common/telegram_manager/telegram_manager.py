@@ -5,21 +5,21 @@ from typing import List, Optional, Type, TYPE_CHECKING
 from queue import Queue
 import logging
 
-from common.telegram_manager.Command import Command
-from common.telegram_manager.TelegramBot import TelegramBot
-from common.telegram_manager.TelegramChat import TelegramChat
-from common.telegram_manager.TelegramMessage import TelegramMessage
-from common.telegram_manager.TelegramUser import TelegramUser
-from common.telegram_manager.TelegramMessageType import TelegramMessageType
-from common.postgre.PostgreManager import PostgreManager
+from src.common.telegram_manager.Command import Command
+from src.common.telegram_manager.TelegramBot import TelegramBot
+from src.common.telegram_manager.TelegramChat import TelegramChat
+from src.common.telegram_manager.TelegramMessage import TelegramMessage
+from src.common.telegram_manager.TelegramUser import TelegramUser
+from src.common.telegram_manager.TelegramMessageType import TelegramMessageType
+from src.common.postgre.PostgreManager import PostgreManager
 
-from common.tools import get_exception, int_timestamp_now
+from src.common.tools import get_exception, int_timestamp_now
 
 if TYPE_CHECKING:
-    from common.telegram_manager.telegram_operations import TelegramOperations
-    from common.telegram_manager.function_handler import FunctionHandler
-    from common.telegram_manager.user_chat_manager import UserChatManager
-    from common.telegram_manager.polling_handler import PollingHandler
+    from src.common.telegram_manager.telegram_operations import TelegramOperations
+    from src.common.telegram_manager.function_handler import FunctionHandler
+    from src.common.telegram_manager.user_chat_manager import UserChatManager
+    from src.common.telegram_manager.polling_handler import PollingHandler
 # from common.telegram_manager.logger_config import init_logger
 
 LOGGER = logging.getLogger(__name__)

@@ -7,11 +7,11 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 from src.common.tools.logging_class import LoggerObj
 
-from common.tools import get_exception, print_exception, int_timestamp_now, class_from_args
-from common.telegram_manager.TelegramUser import TelegramUser
-from common.telegram_manager.TelegramPendingUser import TelegramPendingUser
-from common.telegram_manager.TelegramChat import TelegramChat
-from common.telegram_manager.TelegramFunction import TelegramFunction
+from src.common.tools import get_exception, print_exception, int_timestamp_now, class_from_args
+from src.common.telegram_manager.TelegramUser import TelegramUser
+from src.common.telegram_manager.TelegramPendingUser import TelegramPendingUser
+from src.common.telegram_manager.TelegramChat import TelegramChat
+from src.common.telegram_manager.TelegramFunction import TelegramFunction
 
 
 @dataclass

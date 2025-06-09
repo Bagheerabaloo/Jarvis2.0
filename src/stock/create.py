@@ -1,6 +1,6 @@
 from sqlalchemy import text
-from stock.src.database import engine, Base  # Import the engine and Base class from your database setup
-from stock.src.models import *
+from src.stock.src.db.database import engine, Base  # Import the engine and Base class from your database setup
+from src.stock.src.db.models import *
 
 # Check registered tables
 print("Registered tables before creating:", Base.metadata.tables.keys())

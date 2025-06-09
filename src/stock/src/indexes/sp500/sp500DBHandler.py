@@ -11,10 +11,178 @@ from sqlalchemy import text
 
 from src.common.tools.library import seconds_to_time, safe_execute
 from src.stock.src.TickerService import TickerService
-from src.stock.src.database import session_local
-from src.stock.src.models import SP500Changes, SP500Historical
+from src.stock.src.db.database import session_local
+from src.stock.src.db.models import SP500Changes, SP500Historical
 
 session = session_local()
+
+@dataclass
+class SP500DBHandler:
+    session: sess.Session
+
+    @staticmethod
+    def download_sp500_from_wikipedia() -> pd.DataFrame:
+        """Downloads the list of tickers currently listed in the S&P 500 from Wikipedia.
+        Return Dataframe with the S&P 500 components."""
+        sp500 = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")[0]
+        return sp500
+
+    def get_sp500_tickers_list_from_wikipedia(self, replace_dot: bool = True) -> list[str]:
+        """Downloads list of tickers currently listed in the S&P 500.
+        Returns a list of S&P 500 tickers."""
+        sp500 = self.download_sp500_from_wikipedia()
+
+        sp_tickers = sp500.Symbol.tolist()
+        sp_tickers = sorted(sp_tickers)
+
+        return [x.replace(".", "-") if replace_dot else x for x in sp_tickers]
+
+    def get_last_sp500_historical_row_from_db(self):
+        query = text(f"""
+        SELECT *
+        FROM sp_500_historical
+        WHERE date = (
+        SELECT MAX(date)
+        FROM sp_500_historical)
+        ;
+        """)
+
+        # Execute the query through the session
+        results = self.session.execute(query).fetchall()
+
+        results_as_dicts = [
+            {'date': result[0],
+             'symbol': result[1]
+             }
+            for result in results
+        ]
+
+        results_compact = {'date': results_as_dicts[0]['date'], 'tickers': [results_as_dicts[x]['symbol'] for x in range(len(results_as_dicts))]}
+        df = pd.DataFrame([results_compact])
+        df.set_index('date', inplace=True)
+
+        return df
+
+    def get_sp500_changes_after_date_from_db(self, date):
+        query = text(f"""
+        SELECT *
+        FROM sp_500_changes
+        WHERE date > '{date}'
+        ;
+        """)
+
+        # Execute the query through the session
+        results = self.session.execute(query).fetchall()
+
+        results_as_dicts = [
+            {'date': result[0],
+             'ticker': result[1],
+             'add': result[2],
+             'remove': result[3]
+             }
+            for result in results
+        ]
+
+        df = pd.DataFrame(results_as_dicts)
+        df.set_index('date', inplace=True) if not df.empty else None
+
+        return df
+
+    @staticmethod
+    def add_changes_to_historical_sp500(historical_: pd.DataFrame, last_changes: pd.DataFrame) -> pd.DataFrame:
+        """ Updates the S&P 500 historical components dataframe with the changes dataframe.
+        :param historical_: dataframe of historical S&P 500 components until 2019
+        :param last_changes:  dataframe of changes from 2019 to the S&P 500 components
+        :return: updated dataframe of historical S&P 500 components
+        """
+        if last_changes.empty:
+            return historical_
+
+        def get_tickers_add(group):
+            return list(group.loc[group['add'] == True, 'ticker'])
+
+        def get_tickers_remove(group):
+            return list(group.loc[group['remove'] == True, 'ticker'])
+
+        grouped_changes_df = last_changes.groupby(last_changes.index).apply(
+            lambda x: pd.Series({
+                'add': get_tickers_add(x),
+                'remove': get_tickers_remove(x)
+            })
+        )
+        # __ make sure the index is sorted by date __
+        grouped_changes_df.sort_index(inplace=True)
+
+        for index, row in grouped_changes_df.iterrows():
+            new_row = historical_.tail(1)
+
+            tickers = list(new_row['tickers'].iloc[0])
+            tickers += row["add"]
+            tickers = list(set(tickers) - set(row["remove"]))
+            tickers = sorted(tickers)
+
+            d = {'date': index, 'tickers': [tickers]}
+            new_entry = pd.DataFrame(d)
+            new_entry.set_index('date', inplace=True)
+            historical_ = pd.concat([historical_, new_entry])
+
+        return historical_
+
+    def compare_sp500(self, updated_df: pd.DataFrame) -> bool:
+        # __ compare last row to current S&P500 list __
+        current = self.get_sp500_tickers_list_from_wikipedia(replace_dot=False)
+        last_entry = list(updated_df['tickers'].iloc[-1])
+
+        diff = list(set(current) - set(last_entry)) + list(set(last_entry) - set(current))
+        if len(diff) > 0:
+            print(f" ############## WARNING ##############\n S&P 500 from wikipedia is different:\n{diff}")
+            return False
+        print("S&P 500 from wikipedia is the same as the last entry.")
+        return True
+
+    def save_new_sp500_historical(self, df_: pd.DataFrame):
+        df_expanded = df_.explode('tickers')
+        # Rename the 'tickers' column to 'ticker' for consistency
+        df_expanded = df_expanded.rename(columns={'tickers': 'ticker'})
+        # Convert the expanded DataFrame to a list of SP500Historical objects
+        records_to_insert = [
+            SP500Historical(
+                date=pd.to_datetime(index).date(),
+                ticker=row['ticker'],
+                ticker_yfinance = str(row['ticker']).replace('.', '-'),
+                last_update=datetime.now()  # Optional: add a timestamp of the current insertion time
+            ) for index, row in df_expanded.iterrows()
+        ]
+
+        # Bulk insert records
+        self.session.bulk_save_objects(records_to_insert)
+        self.session.commit()
+
+    def update_sp500_historical_db_from_sp500_changes_db(self):
+        last_sp500_df = self.get_last_sp500_historical_row_from_db()
+        last_date = last_sp500_df.index[0]
+        last_changes = self.get_sp500_changes_after_date_from_db(last_date)
+
+        if last_changes.empty:
+            print("No changes found.")
+            self.compare_sp500(last_sp500_df)
+            return None
+
+        # __ update historical S&P 500 components with changes __
+        new_historical = self.add_changes_to_historical_sp500(last_sp500_df, last_changes)
+
+        # __ compare last row to current S&P500 list __
+        if self.compare_sp500(new_historical):
+            # __ filter the DataFrame for dates greater than filter_date __
+            new_historical = new_historical[new_historical.index > last_date]
+            # __ save new snapshot of S&P 500 historical components __
+            self.save_new_sp500_historical(new_historical.copy())
+
+            # __ refresh materialized views __
+            print("Refreshing materialized views...")
+            self.session.execute(text("REFRESH MATERIALIZED VIEW sp_500_latest_date;"))
+            self.session.commit()
+            print("Materialized views refreshed.")
 
 
 def move_sp500_changes_from_file_to_db():
@@ -89,6 +257,10 @@ def move_sp500_changes_from_file_to_db():
 
     # Perform the bulk insert
     records = prepare_records(expanded_df)
+
+    # filter records with date > 2024-11-01
+    records = [record for record in records if record.date > datetime(2024, 11, 1)] # TODO: autoset the date from DB
+
     bulk_insert_records(records, 'SP500Changes')
 
     return expanded_df
@@ -273,6 +445,7 @@ def update_sp500_historical_from_change():
             SP500Historical(
                 date=pd.to_datetime(index).date(),
                 ticker=row['ticker'],
+                ticker_yfinance = str(row['ticker']).replace('.', '-'),
                 last_update=datetime.now()  # Optional: add a timestamp of the current insertion time
             ) for index, row in df_expanded.iterrows()
         ]
@@ -300,5 +473,37 @@ def update_sp500_historical_from_change():
         # __ save new snapshot of S&P 500 historical components __
         save_new_sp500_historical(new_historical.copy())
 
+        # __ refresh materialized views __
+        print("Refreshing materialized views...")
+        session.execute(text("REFRESH MATERIALIZED VIEW sp_500_latest_date;"))
+        session.commit()
+        print("Materialized views refreshed.")
 
 
+def check_sp500_tickers_foreign_key():
+    # __ get sp500 last components __
+    query = text(f"""
+    SELECT * 
+    FROM sp_500_historical
+    WHERE date = (
+        SELECT MAX(date)
+        FROM sp_500_historical
+    )
+    ;
+    """)
+
+    # Execute the query through the session
+    results = session.execute(query).fetchall()
+
+    results_as_dicts = [
+        {'date': result[0],
+         'symbol': result[1]
+         }
+        for result in results
+    ]
+
+    results_compact = {'date': results_as_dicts[0]['date'], 'tickers': [results_as_dicts[x]['symbol'] for x in range(len(results_as_dicts))]}
+    df = pd.DataFrame([results_compact])
+    df.set_index('date', inplace=True)
+
+    return df

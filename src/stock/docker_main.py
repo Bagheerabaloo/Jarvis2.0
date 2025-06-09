@@ -2,7 +2,6 @@ import asyncio
 import yfinance as yf
 import os
 import sys
-from time import sleep
 import datetime
 import pandas_market_calendars as mcal
 
@@ -10,9 +9,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 from src.common.telegram_manager.TelegramBot import TelegramBot
 from src.common.file_manager.FileManager import FileManager
-from src.common.tools import build_eta, seconds_to_time_str
 from src.stock.src.database import session_local
-from stock.src.sp500.sp500Handler import SP500Handler
+from stock.src.indexes.sp500.sp500Handler import SP500Handler
 
 
 def is_us_market_open():

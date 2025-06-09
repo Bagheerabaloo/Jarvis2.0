@@ -3,6 +3,7 @@ import logging.config
 from pathlib import Path
 from datetime import datetime
 import yaml
+from src.stock.src.RaiseOnErrorHandler import RaiseOnErrorHandler
 
 
 def setup_logging():
@@ -31,5 +32,12 @@ def setup_logging():
     return logging.getLogger()
 
 
+# TODO: make it application specific
 LOGGER = setup_logging()
+
+# Configure the logger for yfinance
+logger = logging.getLogger("yfinance")
+logger.setLevel(logging.ERROR)
+error_handler = RaiseOnErrorHandler(flush_delay=1.5)  # Wait 1.5s before raising
+logger.addHandler(error_handler)
 

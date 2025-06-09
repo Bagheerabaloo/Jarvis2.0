@@ -2,16 +2,15 @@ import yfinance as yf
 import pandas as pd
 from sqlalchemy import func, desc
 from sqlalchemy.orm import aliased
-from sqlalchemy.util import symbol
 from sqlalchemy import text
 
 from src.common.tools.library import *
-from stock.src.database import session_local
-from stock.src.models import CandleAnalysisCandlestickDay, CandleDataDay, Ticker, InfoTradingSession, InfoMarketAndFinancialMetrics, CandleAnalysisIndicatorsDay
+from src.stock.src.db.database import session_local
+from src.stock.src.db.models import CandleAnalysisCandlestickDay, CandleDataDay, Ticker, InfoTradingSession, InfoMarketAndFinancialMetrics
 from stock.src.CandleAnalysisService import CandleAnalysisService
 from stock.src.CandleDataInterval import CandleDataInterval
-from stock.stock_main import get_all_symbols_from_db, get_all_not_updated_analysis_symbols_from_db
-from stock.src.sp500.sp500Handler import SP500Handler
+# from stock.stock_main import get_all_not_updated_analysis_symbols_from_db
+from stock.src.indexes.sp500.sp500Handler import SP500Handler
 
 
 def update_analysis(_session):
@@ -81,7 +80,7 @@ def analysis_1():
 
 
 def build_sp_500_value(_session):
-    from stock.src.sp500.sp500Handler import SP500Handler
+    from stock.src.indexes.sp500.sp500Handler import SP500Handler
 
     sp500_handler = SP500Handler()
     symbols = sp500_handler.get_sp500_from_wikipedia()
@@ -330,12 +329,51 @@ def get_daily_gainers_losers(_session):
     asyncio.run(telegram_bot.send_message(chat_id=admin_info["chat"], text=f"{text1}\n\n{text2}"))
 
 
+def get_forward_pe_history_for_ticker_from_db(_session, _symbol):
+    results = (_session.query(Ticker.symbol, InfoTradingSession.trailing_pe, InfoTradingSession.forward_pe, InfoTradingSession.last_update).
+               join(Ticker, InfoTradingSession.ticker_id == Ticker.id).
+               filter(Ticker.symbol == _symbol)
+               .order_by(desc(InfoTradingSession.last_update))
+               .all())
+
+    df =  pd.DataFrame(results, columns=['Ticker', 'Trailing PE', 'Forward PE', 'last_update']) if results else None
+
+    # Step 1: Convert 'last_update' to datetime and extract only the date
+    df['last_update'] = pd.to_datetime(df['last_update'])
+    df['date'] = df['last_update'].dt.date
+
+    # Step 2: Keep the most recent entry per day
+    df = df.sort_values(by='last_update', ascending=False).drop_duplicates(subset='date', keep='first')
+
+    # Step 3: Drop the 'last_update' column
+    df = df.drop(columns=['last_update'])
+
+    # Step 4: Sort by date for plotting
+    df = df.sort_values(by='date')
+
+    # Step 5: Plotting
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(12, 6))
+    plt.plot(df['date'], df['Trailing PE'], linestyle='-', marker='o', label='Trailing PE')
+    plt.plot(df['date'], df['Forward PE'], linestyle='-', marker='o', label='Forward PE')
+    plt.xlabel('Date')
+    plt.ylabel('PE Ratio')
+    plt.title('Trailing vs Forward PE for TSLA')
+    plt.legend()
+    plt.xticks(rotation=45)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    return df
+
+
 if __name__ == "__main__":
     # __ sqlAlchemy __ create new session
     session = session_local()
 
     # __ update analysis __
-    update_analysis(_session=session)
+    # update_analysis(_session=session)
 
     # __ get the historical percentage of S&P 500 stocks above 200 ma __
     # df = get_sp500_historical_percentage_above_200_ma(_session=session)
@@ -354,6 +392,11 @@ if __name__ == "__main__":
 
     # __analysis 2 __
     # build_sp_500_value(_session=session)
+
+    # __ get the forward pe history for a specific ticker __
+    df = get_forward_pe_history_for_ticker_from_db(_session=session, _symbol="AMZN")
+
+    print('end')
 
 
 

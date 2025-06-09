@@ -1,3 +1,4 @@
-from stock.src.sp500.sp500DBHandler import update_sp500_historical_from_change
+from stock.src.indexes.sp500.sp500DBHandler import update_sp500_historical_from_change
 
+# move_sp500_changes_from_file_to_db()
 update_sp500_historical_from_change()

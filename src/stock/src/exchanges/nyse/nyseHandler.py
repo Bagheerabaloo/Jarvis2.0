@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import text
 
 import yfinance as yf
-from src.stock.src.database import session_local
+from src.stock.src.db.database import session_local
 
 session = session_local()
 

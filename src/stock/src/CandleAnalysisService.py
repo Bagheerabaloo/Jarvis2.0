@@ -5,8 +5,8 @@ from typing import List, Optional
 
 from sqlalchemy.orm import session as sess
 
-from src.stock.src.models import CandleDataDay, CandleDataWeek, CandleDataMonth, CandleData1Hour, CandleData5Minutes, CandleData1Minute
-from src.stock.src.models import CandleAnalysisCandlestickDay, CandleAnalysisIndicatorsDay, CandleAnalysisTrendMethod1Day
+from src.stock.src.db.models import CandleDataDay, CandleDataWeek, CandleDataMonth, CandleData1Hour, CandleData5Minutes, CandleData1Minute
+from src.stock.src.db.models import CandleAnalysisCandlestickDay, CandleAnalysisIndicatorsDay, CandleAnalysisTrendMethod1Day
 from src.stock.src.TickerServiceBase import Ticker
 from src.stock.src.CandleDataInterval import CandleDataInterval
 

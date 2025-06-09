@@ -9,7 +9,7 @@ from sqlalchemy.orm import session as sess
 from sqlalchemy.sql import literal
 from sqlalchemy.inspection import inspect
 
-from src.stock.src.models import Base, Ticker
+from src.stock.src.db.models import Base, Ticker
 
 from logger_setup import LOGGER
 

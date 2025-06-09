@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, Numeric, ForeignKey, Index, UniqueConstraint
 from sqlalchemy import Float, BigInteger, Date, DateTime, UUID as SA_UUID
 from sqlalchemy.orm import relationship
-from src.stock.src.database import Base
+from src.stock.src.db.database import Base
 
 
 class Ticker(Base):
@@ -12,6 +12,8 @@ class Ticker(Base):
     company_name = Column(Text)  # Full company name
     business_summary = Column(Text)  # Business summary description
     last_update = Column(DateTime)  # Timestamp to track when the data was recorded
+    failed_candle_download = Column(Boolean, nullable=True)  # Flag to track if the candle data download failed
+    yf_error = Column(String, nullable=True)  # Error message from Yahoo Finance API
 
     # Relationships
     actions = relationship("Action", back_populates="ticker", cascade="all, delete-orphan")
@@ -20,6 +22,7 @@ class Ticker(Base):
     cash_flow = relationship("CashFlow", back_populates="ticker", cascade="all, delete-orphan")
     earnings_dates = relationship("EarningsDates", back_populates="ticker", cascade="all, delete-orphan")
     financials = relationship("Financials", back_populates="ticker", cascade="all, delete-orphan")
+    ticker_status = relationship("TickerStatus", back_populates="ticker", cascade="all, delete-orphan")
     info_cash_and_financial_ratios = relationship("InfoCashAndFinancialRatios", back_populates="ticker", cascade="all, delete-orphan")
     info_company_address = relationship("InfoCompanyAddress", back_populates="ticker", cascade="all, delete-orphan")
     info_sector_industry_history = relationship("InfoSectorIndustryHistory", back_populates="ticker", cascade="all, delete-orphan")
@@ -47,6 +50,19 @@ class Ticker(Base):
 
     def __repr__(self):
         return f"<Ticker(id={self.id}, symbol={self.symbol}, company_name={self.company_name})>"
+
+
+class TickerStatus(Base):
+    __tablename__ = 'ticker_status'
+
+    ticker_id = Column(Integer, ForeignKey('ticker.id'), primary_key=True)  # Foreign key reference to ticker table
+    last_update = Column(DateTime, nullable=False, primary_key=True)  # Timestamp to track when the data was recorded
+
+    status = Column(String(20), nullable=False)  # Status of the ticker (e.g., "active", "inactive", "delisted")
+    yfinance_error = Column(String(200), nullable=False)
+
+    # Relationship to access the parent Ticker object
+    ticker = relationship("Ticker", back_populates="ticker_status")
 
 
 class BalanceSheet(Base):
@@ -332,7 +348,7 @@ class InfoSectorIndustryHistory(Base):
     __tablename__ = 'info_sector_industry_history'
 
     ticker_id = Column(Integer, ForeignKey('ticker.id'), nullable=False, primary_key=True)  # Foreign key reference to ticker table
-    last_update = Column(Date, nullable=False, primary_key=True)                            # Timestamp to track when the data was recorded
+    last_update = Column(DateTime, nullable=False, primary_key=True)                            # Timestamp to track when the data was recorded
 
     sector = Column(String(100), nullable=False)                                            # Sector of the company
     industry = Column(String(100), nullable=False)                                          # Industry of the company
@@ -576,8 +592,8 @@ class InfoTradingSession(Base):
     day_low = Column(Numeric(10, 4), nullable=True)                         # Day's low price               - this changes during trading session
     market_cap = Column(BigInteger, nullable=True)                                        # Market capitalization       - this changes during trading session
     regular_market_open = Column(Numeric(10, 4), nullable=True)  # Regular market open
-    trailing_pe = Column(Numeric(11, 7), nullable=True)  # Trailing PE ratio
-    forward_pe = Column(Numeric(11, 7), nullable=True)  # Forward PE ratio
+    trailing_pe = Column(Numeric(13, 7), nullable=True)  # Trailing PE ratio
+    forward_pe = Column(Numeric(13, 7), nullable=True)  # Forward PE ratio
     volume = Column(BigInteger, nullable=True)  # Volume
     bid = Column(Numeric(10, 4), nullable=True)  # Bid price
     ask = Column(Numeric(10, 4), nullable=True)  # Ask price
@@ -1251,6 +1267,7 @@ class SP500Historical(Base):
     # Primary key is a composite of date and ticker
     date = Column(Date, primary_key=True, nullable=False)
     ticker = Column(String(10), primary_key=True, nullable=False)
+    ticker_yfinance = Column(String(10), nullable=True)  # Ticker symbol used by Yahoo Finance - foreign key on ticker.symbol
 
     # Timestamp to track when the data was recorded
     last_update = Column(DateTime, nullable=True)

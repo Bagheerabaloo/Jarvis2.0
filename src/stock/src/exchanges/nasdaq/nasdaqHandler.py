@@ -8,14 +8,13 @@ from pathlib import Path
 from datetime import datetime
 
 import yfinance as yf
-from src.stock.src.database import session_local
+from src.stock.src.db.database import session_local
 from sqlalchemy import text
-from src.stock.src.database import session_local
 
 session = session_local()
 
 
-def get_nasdaq_tickers():
+def get_nasdaq_tickers() -> list[str]:
     """
     https://www.nasdaqtrader.com/trader.aspx?id=symboldirdefs
 

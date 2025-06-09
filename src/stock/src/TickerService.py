@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import yfinance as yf
 from datetime import date
 from typing import Optional
 from datetime import datetime, date
@@ -7,12 +8,13 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.sql import and_
 
+from common.tools.library import safe_execute
 from src.stock.src.TickerServiceBase import Ticker, TickerServiceBase
-from src.stock.src.models import Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates
-from src.stock.src.models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
-from src.stock.src.models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
-from src.stock.src.models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
-from src.stock.src.models import UpgradesDowngrades
+from src.stock.src.db.models import Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates, TickerStatus
+from src.stock.src.db.models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
+from src.stock.src.db.models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
+from src.stock.src.db.models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
+from src.stock.src.db.models import UpgradesDowngrades
 from src.stock.src.CandleService import CandleService
 from src.stock.src.CandleDataInterval import CandleDataInterval
 
@@ -24,9 +26,34 @@ pd.set_option('future.no_silent_downcasting', True)
 @dataclass
 class TickerService(TickerServiceBase):
     candle_service: CandleService = field(default=None, init=False)
+    stock: yf.Ticker = field(default=None, init=False)
+    info: dict = field(default=None, init=False)
+
+    def set_stock(self, stock: yf.Ticker):
+        """
+        Set the stock attribute to the provided yf.Ticker object.
+
+        :param stock: yf.Ticker object representing the stock.
+        """
+        self.stock = stock
+
+    def set_info(self, info):
+        """
+        Set the info attribute to the provided dictionary.
+
+        :param info: Dictionary containing stock information.
+        """
+        self.info = info
 
     """ Handle the insertion or update of a Ticker record in the database. """
-    def handle_ticker(self, info: dict) -> bool:
+    def handle_ticker(self, info: dict, error: Optional[str], status: Optional[str]) -> bool:
+
+        if info is None or not info:
+            existing_ticker = self.get_existing_ticker()
+            self.initialize_ticker(ticker=existing_ticker)  # initialize Ticker attribute
+            self.handle_ticker_status(status, error)
+            return False
+
         company_name = info.get('longName', None)
         business_summary = info.get('longBusinessSummary', None)
         ticker_data = {"symbol": self.symbol, "company_name": company_name, "business_summary": business_summary}
@@ -48,6 +75,14 @@ class TickerService(TickerServiceBase):
             LOGGER.error(f"{self.symbol} - Error updating or inserting ticker: {e}")
 
         return False
+
+    def get_existing_ticker(self) -> Optional[Ticker]:
+        """
+        Retrieve the existing Ticker object for the current symbol.
+
+        :return: Ticker object if it exists, None otherwise.
+        """
+        return self.session.query(Ticker).filter_by(symbol=self.symbol).first()
 
     def update_existing_ticker(self, existing_ticker: Ticker, ticker_data: dict) -> bool:
         """
@@ -119,16 +154,25 @@ class TickerService(TickerServiceBase):
 
     """Handle of all other information"""
 
-    def handle_balance_sheet(self, balance_sheet: pd.DataFrame, period_type: str) -> None:
+    def handle_balance_sheet(self, period_type: str) -> None:
         """
         Handle the insertion of balance sheet data into the database.
 
-        :param balance_sheet: DataFrame containing the balance sheet data.
         :param period_type: The period type of the data (e.g., 'annual' or 'quarterly').
         """
 
+        # switch period_type:
+        match period_type:
+            case 'annual':
+                balance_sheet = safe_execute(None, lambda: getattr(self.stock, "balance_sheet"))
+            case 'quarterly':
+                balance_sheet = safe_execute(None, lambda: getattr(self.stock, "quarterly_balance_sheet"))
+            case _:
+                LOGGER.error(f"{self.ticker.symbol} - Invalid period_type: {period_type}. Expected 'annual' or 'quarterly'.")
+                return None
+
         # __ if balance_sheet is empty, return __
-        if balance_sheet.empty:
+        if balance_sheet is None or (isinstance(balance_sheet, pd.DataFrame) and balance_sheet.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Balance Sheet'.rjust(50)} - no data to insert")
             return None
 
@@ -238,16 +282,25 @@ class TickerService(TickerServiceBase):
                     self.session.rollback()
                     LOGGER.error(f"Error occurred: {e}")
 
-    def handle_cash_flow(self, cash_flow: pd.DataFrame, period_type: str) -> None:
+    def handle_cash_flow(self, period_type: str) -> None:
         """
         Handle the insertion of cash flow data into the database.
 
-        :param cash_flow: DataFrame containing the cash flow data.
         :param period_type: The period type of the data (e.g., 'annual' or 'quarterly').
         """
 
+        # switch period_type:
+        match period_type:
+            case 'annual':
+                cash_flow = safe_execute(None, lambda: getattr(self.stock, "cashflow"))
+            case 'quarterly':
+                cash_flow = safe_execute(None, lambda: getattr(self.stock, "quarterly_cashflow"))
+            case _:
+                LOGGER.error(f"{self.ticker.symbol} - Invalid period_type: {period_type}. Expected 'annual' or 'quarterly'.")
+                return None
+
         # __ if cash_flow is empty, return __
-        if cash_flow.empty:
+        if cash_flow is None or (isinstance(cash_flow, pd.DataFrame) and cash_flow.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Cash Flow'.rjust(50)} - no data to insert")
             return None
 
@@ -348,16 +401,26 @@ class TickerService(TickerServiceBase):
                     self.session.rollback()
                     LOGGER.error(f"Error occurred: {e}")
 
-    def handle_financials(self, financials: pd.DataFrame, period_type: str) -> None:
+    def handle_financials(self, period_type: str) -> None:
         """
         Handle the insertion of financials data into the database.
 
-        :param financials: DataFrame containing the financials data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         :param period_type: The period type of the data (e.g., 'annual' or 'quarterly').
         """
 
+        #switch period_type:
+        match period_type:
+            case 'annual':
+                financials = safe_execute(None, lambda: getattr(self.stock, "financials"))
+            case 'quarterly':
+                financials = safe_execute(None, lambda: getattr(self.stock, "quarterly_financials"))
+            case _:
+                LOGGER.error(f"{self.ticker.symbol} - Invalid period_type: {period_type}. Expected 'annual' or 'quarterly'.")
+                return None
+
         # __ if financials is empty, return __
-        if financials.empty:
+        if financials is None or (isinstance(financials, pd.DataFrame) and financials.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Financials'.rjust(50)} - no data to insert")
             return None
 
@@ -444,15 +507,17 @@ class TickerService(TickerServiceBase):
                     self.session.rollback()
                     LOGGER.error(f"Error occurred: {e}")
 
-    def handle_actions(self, actions: pd.DataFrame) -> None:
+    def handle_actions(self) -> None:
         """
         Handle the insertion or update of actions data into the database.
 
-        :param actions: DataFrame containing the actions data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
+        actions = safe_execute(None, lambda: getattr(self.stock, "actions"))
+
         # __ if actions is empty, return __
-        if actions.empty:
+        if actions is None or (isinstance(actions, pd.DataFrame) and actions.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Actions'.rjust(50)} - no data to insert")
             return None
 
@@ -472,12 +537,14 @@ class TickerService(TickerServiceBase):
             model_class=Action
         )
 
-    def handle_calendar(self, calendar: dict) -> None:
+    def handle_calendar(self) -> None:
         """
         Handle the insertion or update of calendar dates into the DB.
 
-        :param calendar: Dictionary containing the dividend and earnings data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
+
+        calendar = safe_execute(None, lambda: getattr(self.stock, "calendar"))
 
         # __ if calendar is empty, return __
         if not calendar or not any(calendar.values()):
@@ -500,15 +567,17 @@ class TickerService(TickerServiceBase):
             model_class=Calendar
         )
 
-    def handle_earnings_dates(self, earnings_dates: pd.DataFrame) -> None:
+    def handle_earnings_dates(self) -> None:
         """
         Handle the insertion of earnings dates data into the database.
 
-        :param earnings_dates: DataFrame containing the earnings dates data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
+        earnings_dates = safe_execute(None, lambda: getattr(self.stock, "earnings_dates"))
+
         # __ if earnings_dates is empty, return __
-        if earnings_dates.empty:
+        if earnings_dates is None or (isinstance(earnings_dates, pd.DataFrame) and earnings_dates.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Earnings Dates'.rjust(50)} - no data to insert")
             return None
 
@@ -550,7 +619,25 @@ class TickerService(TickerServiceBase):
             model_class=EarningsDates
         )
 
-    def handle_info_company_address(self, info_data: dict) -> None:
+    def handle_ticker_status(self, status: str, error: str) -> None:
+        """
+        Handle the insertion or update of ticker status into the database.
+
+        :param status: The status of the ticker (e.g., 'active', 'inactive').
+        :param error: Any error message associated with the ticker.
+        """
+
+        new_record_data = {
+            'status': status,
+            'yfinance_error': error
+        }
+
+        self.handle_generic_record_update(
+            new_record_data=new_record_data,
+            model_class=TickerStatus
+        )
+
+    def handle_info_company_address(self) -> None:
         """
         Handle the insertion or update of company address information into the database.
 
@@ -558,20 +645,20 @@ class TickerService(TickerServiceBase):
         """
 
         # __ if info_data is empty, return __
-        if not info_data:
+        if not self.info:
             LOGGER.warning(f"{self.ticker.symbol} - {'Company Address'.rjust(50)} - no data to insert")
             return None
 
         # Prepare the new record data with default values as None
         new_record_data = {
-            'address1': info_data.get('address1', None),
-            'city': info_data.get('city', None),
-            'state': info_data.get('state', None),
-            'zip': info_data.get('zip', None),
-            'country': info_data.get('country', None),
-            'phone': info_data.get('phone', None),
-            'website': info_data.get('website', None),
-            'ir_website': info_data.get('irWebsite', None)
+            'address1': self.info.get('address1', None),
+            'city': self.info.get('city', None),
+            'state': self.info.get('state', None),
+            'zip': self.info.get('zip', None),
+            'country': self.info.get('country', None),
+            'phone': self.info.get('phone', None),
+            'website': self.info.get('website', None),
+            'ir_website': self.info.get('irWebsite', None)
         }
 
         # Call the generic function to handle insert/update
@@ -580,7 +667,7 @@ class TickerService(TickerServiceBase):
             model_class=InfoCompanyAddress
         )
 
-    def handle_sector_industry_history(self, info_data: dict) -> None:
+    def handle_sector_industry_history(self) -> None:
         """
         Handle the insertion or update of sector and industry history data into the database.
 
@@ -588,13 +675,13 @@ class TickerService(TickerServiceBase):
         """
 
         # __ if info_data is empty, return __
-        if not info_data:
+        if not self.info:
             LOGGER.warning(f"{self.ticker.symbol} - {'Sector Industry History'.rjust(50)} - no data to insert")
             return None
 
         new_record_data = {
-            'sector': info_data.get('sector', None),
-            'industry': info_data.get('industry', None)
+            'sector': self.info.get('sector', None),
+            'industry': self.info.get('industry', None)
         }
 
         if new_record_data['sector'] is None or new_record_data['industry'] is None:
@@ -606,7 +693,7 @@ class TickerService(TickerServiceBase):
             model_class=InfoSectorIndustryHistory
         )
 
-    def handle_info_target_price_and_recommendation(self, info_data: dict) -> None:
+    def handle_info_target_price_and_recommendation(self) -> None:
         """
         Handle the insertion or update of target price and recommendation info into the database.
 
@@ -614,18 +701,18 @@ class TickerService(TickerServiceBase):
         """
 
         # __ if info_data is empty, return __
-        if not info_data:
+        if not self.info:
             LOGGER.warning(f"{self.ticker.symbol} - {'Target Price and Recommendation'.rjust(50)} - no data to insert")
             return None
 
         new_record_data = {
-            'target_high_price': info_data.get('targetHighPrice', None),
-            'target_low_price': info_data.get('targetLowPrice', None),
-            'target_mean_price': info_data.get('targetMeanPrice', None),
-            'target_median_price': info_data.get('targetMedianPrice', None),
-            'recommendation_mean': info_data.get('recommendationMean', None),
-            'recommendation_key': info_data.get('recommendationKey', None),
-            'number_of_analyst_opinions': info_data.get('numberOfAnalystOpinions', None)
+            'target_high_price': self.info.get('targetHighPrice', None),
+            'target_low_price': self.info.get('targetLowPrice', None),
+            'target_mean_price': self.info.get('targetMeanPrice', None),
+            'target_median_price': self.info.get('targetMedianPrice', None),
+            'recommendation_mean': self.info.get('recommendationMean', None),
+            'recommendation_key': self.info.get('recommendationKey', None),
+            'number_of_analyst_opinions': self.info.get('numberOfAnalystOpinions', None)
         }
 
         self.handle_generic_record_update(
@@ -633,7 +720,7 @@ class TickerService(TickerServiceBase):
             model_class=InfoTargetPriceAndRecommendation
         )
 
-    def handle_info_governance(self, info_data: dict) -> None:
+    def handle_info_governance(self) -> None:
         """
         Handle the insertion or update of governance info into the database.
 
@@ -641,19 +728,19 @@ class TickerService(TickerServiceBase):
         """
 
         # __ if info_data is empty, return __
-        if not info_data:
+        if not self.info:
             LOGGER.warning(f"{self.ticker.symbol} - {'Governance'.rjust(50)} - no data to insert")
             return None
 
         # Prepare the new record data for InfoGovernance
         new_record_data = {
-            'audit_risk': info_data.get('auditRisk', None),
-            'board_risk': info_data.get('boardRisk', None),
-            'compensation_risk': info_data.get('compensationRisk', None),
-            'shareholder_rights_risk': info_data.get('shareHolderRightsRisk', None),
-            'overall_risk': info_data.get('overallRisk', None),
-            'governance_epoch_date': info_data.get('governanceEpochDate', None),
-            'compensation_as_of_epoch_date': info_data.get('compensationAsOfEpochDate', None)
+            'audit_risk': self.info.get('auditRisk', None),
+            'board_risk': self.info.get('boardRisk', None),
+            'compensation_risk': self.info.get('compensationRisk', None),
+            'shareholder_rights_risk': self.info.get('shareHolderRightsRisk', None),
+            'overall_risk': self.info.get('overallRisk', None),
+            'governance_epoch_date': self.info.get('governanceEpochDate', None),
+            'compensation_as_of_epoch_date': self.info.get('compensationAsOfEpochDate', None)
         }
 
         # Call the generic function to handle the update or insertion
@@ -663,7 +750,7 @@ class TickerService(TickerServiceBase):
             additional_filters=None  # No additional filters needed in this case
         )
 
-    def handle_info_cash_and_financial_ratios(self, info_data: dict) -> None:
+    def handle_info_cash_and_financial_ratios(self) -> None:
         """
         Handle the insertion or update of cash and financial ratios info into the database.
 
@@ -671,30 +758,30 @@ class TickerService(TickerServiceBase):
         """
 
         # __ if info_data is empty, return __
-        if not info_data:
+        if not self.info:
             LOGGER.warning(f"{self.ticker.symbol} - {'Cash and Financial Ratios'.rjust(50)} - no data to insert")
             return None
 
         new_record_data = {
-            'total_cash': info_data.get('totalCash', None),
-            'total_cash_per_share': info_data.get('totalCashPerShare', None),
-            'ebitda': info_data.get('ebitda', None),
-            'total_debt': info_data.get('totalDebt', None),
-            'quick_ratio': info_data.get('quickRatio', None),
-            'current_ratio': info_data.get('currentRatio', None),
-            'total_revenue': info_data.get('totalRevenue', None),
-            'debt_to_equity': info_data.get('debtToEquity', None),
-            'revenue_per_share': info_data.get('revenuePerShare', None),
-            'return_on_assets': info_data.get('returnOnAssets', None),
-            'return_on_equity': info_data.get('returnOnEquity', None),
-            'free_cashflow': info_data.get('freeCashflow', None),
-            'operating_cashflow': info_data.get('operatingCashflow', None),
-            'earnings_growth': info_data.get('earningsGrowth', None),
-            'revenue_growth': info_data.get('revenueGrowth', None),
-            'gross_margins': info_data.get('grossMargins', None),
-            'ebitda_margins': info_data.get('ebitdaMargins', None),
-            'operating_margins': info_data.get('operatingMargins', None),
-            'trailing_peg_ratio': info_data.get('trailingPegRatio', None)
+            'total_cash': self.info.get('totalCash', None),
+            'total_cash_per_share': self.info.get('totalCashPerShare', None),
+            'ebitda': self.info.get('ebitda', None),
+            'total_debt': self.info.get('totalDebt', None),
+            'quick_ratio': self.info.get('quickRatio', None),
+            'current_ratio': self.info.get('currentRatio', None),
+            'total_revenue': self.info.get('totalRevenue', None),
+            'debt_to_equity': self.info.get('debtToEquity', None),
+            'revenue_per_share': self.info.get('revenuePerShare', None),
+            'return_on_assets': self.info.get('returnOnAssets', None),
+            'return_on_equity': self.info.get('returnOnEquity', None),
+            'free_cashflow': self.info.get('freeCashflow', None),
+            'operating_cashflow': self.info.get('operatingCashflow', None),
+            'earnings_growth': self.info.get('earningsGrowth', None),
+            'revenue_growth': self.info.get('revenueGrowth', None),
+            'gross_margins': self.info.get('grossMargins', None),
+            'ebitda_margins': self.info.get('ebitdaMargins', None),
+            'operating_margins': self.info.get('operatingMargins', None),
+            'trailing_peg_ratio': self.info.get('trailingPegRatio', None)
         }
 
         self.handle_generic_record_update(
@@ -702,7 +789,7 @@ class TickerService(TickerServiceBase):
             model_class=InfoCashAndFinancialRatios
         )
 
-    def handle_info_market_and_financial_metrics(self, info_data: dict) -> None:
+    def handle_info_market_and_financial_metrics(self) -> None:
         """
         Handle the insertion or update of market and financial metrics info into the database.
 
@@ -710,61 +797,61 @@ class TickerService(TickerServiceBase):
         """
 
         # __ if info_data is empty, return __
-        if not info_data:
+        if not self.info:
             LOGGER.warning(f"{self.ticker.symbol} - {'Market and Financial Metrics'.rjust(50)} - no data to insert")
             return None
 
         # Extract the new data from the info_data dictionary
         new_record_data = {
-            'dividend_rate': info_data.get('dividendRate', None),
-            'dividend_yield': info_data.get('dividendYield', None),
-            'ex_dividend_date': info_data.get('exDividendDate', None),
-            'payout_ratio': info_data.get('payoutRatio', None),
-            'five_year_avg_dividend_yield': info_data.get('fiveYearAvgDividendYield', None),
-            'trailing_annual_dividend_rate': info_data.get('trailingAnnualDividendRate', None),
-            'trailing_annual_dividend_yield': info_data.get('trailingAnnualDividendYield', None),
-            'last_dividend_value': info_data.get('lastDividendValue', None),
-            'last_dividend_date': info_data.get('lastDividendDate', None),
+            'dividend_rate': self.info.get('dividendRate', None),
+            'dividend_yield': self.info.get('dividendYield', None),
+            'ex_dividend_date': self.info.get('exDividendDate', None),
+            'payout_ratio': self.info.get('payoutRatio', None),
+            'five_year_avg_dividend_yield': self.info.get('fiveYearAvgDividendYield', None),
+            'trailing_annual_dividend_rate': self.info.get('trailingAnnualDividendRate', None),
+            'trailing_annual_dividend_yield': self.info.get('trailingAnnualDividendYield', None),
+            'last_dividend_value': self.info.get('lastDividendValue', None),
+            'last_dividend_date': self.info.get('lastDividendDate', None),
 
-            'average_volume': info_data.get('averageVolume', None),
-            'average_volume_10days': info_data.get('averageVolume10days', None),
-            'average_daily_volume_10day': info_data.get('averageDailyVolume10Day', None),
+            'average_volume': self.info.get('averageVolume', None),
+            'average_volume_10days': self.info.get('averageVolume10days', None),
+            'average_daily_volume_10day': self.info.get('averageDailyVolume10Day', None),
 
-            'enterprise_value': info_data.get('enterpriseValue', None),
-            'book_value': info_data.get('bookValue', None),
-            'enterprise_to_revenue': info_data.get('enterpriseToRevenue', None),
-            'enterprise_to_ebitda': info_data.get('enterpriseToEbitda', None),
+            'enterprise_value': self.info.get('enterpriseValue', None),
+            'book_value': self.info.get('bookValue', None),
+            'enterprise_to_revenue': self.info.get('enterpriseToRevenue', None),
+            'enterprise_to_ebitda': self.info.get('enterpriseToEbitda', None),
 
-            'shares_short': info_data.get('sharesShort', None),
-            'shares_short_prior_month': info_data.get('sharesShortPriorMonth', None),
-            'shares_short_previous_month_date': info_data.get('sharesShortPreviousMonthDate', None),
-            'date_short_interest': info_data.get('dateShortInterest', None),
-            'shares_percent_shares_out': info_data.get('sharesPercentSharesOut', None),
-            'held_percent_insiders': info_data.get('heldPercentInsiders', None),
-            'held_percent_institutions': info_data.get('heldPercentInstitutions', None),
-            'short_ratio': info_data.get('shortRatio', None),
-            'short_percent_of_float': info_data.get('shortPercentOfFloat', None),
-            'implied_shares_outstanding': info_data.get('impliedSharesOutstanding', None),
-            'float_shares': info_data.get('floatShares', None),
-            'shares_outstanding': info_data.get('sharesOutstanding', None),
+            'shares_short': self.info.get('sharesShort', None),
+            'shares_short_prior_month': self.info.get('sharesShortPriorMonth', None),
+            'shares_short_previous_month_date': self.info.get('sharesShortPreviousMonthDate', None),
+            'date_short_interest': self.info.get('dateShortInterest', None),
+            'shares_percent_shares_out': self.info.get('sharesPercentSharesOut', None),
+            'held_percent_insiders': self.info.get('heldPercentInsiders', None),
+            'held_percent_institutions': self.info.get('heldPercentInstitutions', None),
+            'short_ratio': self.info.get('shortRatio', None),
+            'short_percent_of_float': self.info.get('shortPercentOfFloat', None),
+            'implied_shares_outstanding': self.info.get('impliedSharesOutstanding', None),
+            'float_shares': self.info.get('floatShares', None),
+            'shares_outstanding': self.info.get('sharesOutstanding', None),
 
-            'earnings_quarterly_growth': info_data.get('earningsQuarterlyGrowth', None),
-            'net_income_to_common': info_data.get('netIncomeToCommon', None),
-            'trailing_eps': info_data.get('trailingEps', None),
-            'forward_eps': info_data.get('forwardEps', None),
-            'peg_ratio': info_data.get('pegRatio', None),
+            'earnings_quarterly_growth': self.info.get('earningsQuarterlyGrowth', None),
+            'net_income_to_common': self.info.get('netIncomeToCommon', None),
+            'trailing_eps': self.info.get('trailingEps', None),
+            'forward_eps': self.info.get('forwardEps', None),
+            'peg_ratio': self.info.get('pegRatio', None),
 
-            'last_split_factor': info_data.get('lastSplitFactor', None),
-            'last_split_date': info_data.get('lastSplitDate', None),
+            'last_split_factor': self.info.get('lastSplitFactor', None),
+            'last_split_date': self.info.get('lastSplitDate', None),
 
-            'beta': info_data.get('beta', None),
+            'beta': self.info.get('beta', None),
 
-            'profit_margins': info_data.get('profitMargins', None),
-            'fifty_two_week_change': info_data.get('52WeekChange', None),
-            'sp_fifty_two_week_change': info_data.get('SandP52WeekChange', None),
-            'last_fiscal_year_end': info_data.get('lastFiscalYearEnd', None),
-            'next_fiscal_year_end': info_data.get('nextFiscalYearEnd', None),
-            'most_recent_quarter': info_data.get('mostRecentQuarter', None)
+            'profit_margins': self.info.get('profitMargins', None),
+            'fifty_two_week_change': self.info.get('52WeekChange', None),
+            'sp_fifty_two_week_change': self.info.get('SandP52WeekChange', None),
+            'last_fiscal_year_end': self.info.get('lastFiscalYearEnd', None),
+            'next_fiscal_year_end': self.info.get('nextFiscalYearEnd', None),
+            'most_recent_quarter': self.info.get('mostRecentQuarter', None)
         }
 
         self.handle_generic_record_update(
@@ -772,39 +859,40 @@ class TickerService(TickerServiceBase):
             model_class=InfoMarketAndFinancialMetrics
         )
 
-    def handle_info_general_stock(self, isin: str, info_data: dict, history_metadata: dict) -> None:
+    def handle_info_general_stock(self) -> None:
         """
         Handle the insertion or update of general stock information into the database.
 
-        :param isin: The ISIN of the stock.
         :param info_data: Dictionary containing the general stock information from stock.info.
-        :param history_metadata: Dictionary containing the general stock information from stock.history_metadata.
         """
 
+        isin = safe_execute(None, lambda: getattr(self.stock, "isin"))
+        history_metadata = safe_execute(None, lambda: getattr(self.stock, "history_metadata"))
+
         # __ if info_data is empty, return __
-        if not info_data:
+        if not self.info or not history_metadata or not isin:
             LOGGER.warning(f"{self.ticker.symbol} - {'General Stock Info'.rjust(50)} - no data to insert")
             return None
 
         # Prepare the new record data combining both info_data and metadata_data
         new_record_data = {
             'isin': isin,
-            'currency': info_data.get('currency', None),
-            'symbol': info_data.get('symbol', None),
-            'exchange': info_data.get('exchange', None),
-            'quote_type': info_data.get('quoteType', None),
-            'underlying_symbol': info_data.get('underlyingSymbol', None),
-            'short_name': info_data.get('shortName', None),
-            'long_name': info_data.get('longName', None),
-            'first_trade_date_epoch_utc': info_data.get('firstTradeDateEpochUtc', None),
-            'time_zone_full_name': info_data.get('timeZoneFullName', None),
-            'time_zone_short_name': info_data.get('timeZoneShortName', None),
-            'uuid': info_data.get('uuid', None),
-            'message_board_id': info_data.get('messageBoardId', None),
-            'gmt_offset_milliseconds': info_data.get('gmtOffSetMilliseconds', None),
-            'price_hint': info_data.get('priceHint', None),
-            'max_age': info_data.get('maxAge', None),
-            'full_time_employees': info_data.get('fullTimeEmployees', None),
+            'currency': self.info.get('currency', None),
+            'symbol': self.info.get('symbol', None),
+            'exchange': self.info.get('exchange', None),
+            'quote_type': self.info.get('quoteType', None),
+            'underlying_symbol': self.info.get('underlyingSymbol', None),
+            'short_name': self.info.get('shortName', None),
+            'long_name': self.info.get('longName', None),
+            'first_trade_date_epoch_utc': self.info.get('firstTradeDateEpochUtc', None),
+            'time_zone_full_name': self.info.get('timeZoneFullName', None),
+            'time_zone_short_name': self.info.get('timeZoneShortName', None),
+            'uuid': self.info.get('uuid', None),
+            'message_board_id': self.info.get('messageBoardId', None),
+            'gmt_offset_milliseconds': self.info.get('gmtOffSetMilliseconds', None),
+            'price_hint': self.info.get('priceHint', None),
+            'max_age': self.info.get('maxAge', None),
+            'full_time_employees': self.info.get('fullTimeEmployees', None),
 
             # Fields from history_metadata
             'full_exchange_name': history_metadata.get('fullExchangeName', None),
@@ -821,17 +909,16 @@ class TickerService(TickerServiceBase):
             model_class=InfoGeneralStock
         )
 
-    def handle_info_trading_session(self, info: dict, basic_info: dict, history_metadata: dict) -> None:
+    def handle_info_trading_session(self) -> None:
         """
         Handle the insertion or update of trading session information into the database.
-
-        :param info: Dictionary containing the info data from stock.info.
-        :param basic_info: Dictionary containing the basic info data from stock.basic_info.
-        :param history_metadata: Dictionary containing the history metadata from stock.history_metadata.
         """
 
+        basic_info = safe_execute(None, lambda: getattr(self.stock, "fast_info"))
+        history_metadata = safe_execute(None, lambda: getattr(self.stock, "history_metadata"))
+
         # __ if info is empty, return __
-        if not info:
+        if not self.info or not history_metadata: # TODO: log based on basic_info
             LOGGER.warning(f"{self.ticker.symbol} - {'Trading Session Info'.rjust(50)} - no data to insert")
             return None
 
@@ -846,40 +933,66 @@ class TickerService(TickerServiceBase):
             'regular_market_day_low': history_metadata.get('regularMarketDayLow', None),
             'regular_market_volume': history_metadata.get('regularMarketVolume', None),
 
-            # From basic info (dynamic and static data)
-            'last_price': basic_info.get('lastPrice', None),
-            'last_volume': basic_info.get('lastVolume', None),
-            'ten_day_average_volume': basic_info.get('tenDayAverageVolume', None),
-            'three_month_average_volume': basic_info.get('threeMonthAverageVolume', None),
-            'year_change': basic_info.get('yearChange', None),
-            'year_high': basic_info.get('yearHigh', None),
-            'year_low': basic_info.get('yearLow', None),
-
             # From info (dynamic and static data)
-            'current_price': info.get('currentPrice', None),
-            'open': info.get('open', None),
-            'previous_close': info.get('previousClose', None),
-            'regular_market_previous_close': info.get('regularMarketPreviousClose', None),
-            'day_high': info.get('dayHigh', None),
-            'day_low': info.get('dayLow', None),
-            'market_cap': info.get('marketCap', None),
-            'regular_market_open': info.get('regularMarketOpen', None),
-            'trailing_pe': info.get('trailingPE', None),
-            'forward_pe': info.get('forwardPE', None),
-            'volume': info.get('volume', None),
-            'bid': info.get('bid', None),
-            'ask': info.get('ask', None),
-            'bid_size': info.get('bidSize', None),
-            'ask_size': info.get('askSize', None),
-            'price_to_sales_trailing_12months': info.get('priceToSalesTrailing12Months', None),
-            'price_to_book': info.get('priceToBook', None),
-            'fifty_day_average': info.get('fiftyDayAverage', None),
-            'two_hundred_day_average': info.get('twoHundredDayAverage', None)
+            'current_price': self.info.get('currentPrice', None),
+            'open': self.info.get('open', None),
+            'previous_close': self.info.get('previousClose', None),
+            'regular_market_previous_close': self.info.get('regularMarketPreviousClose', None),
+            'day_high': self.info.get('dayHigh', None),
+            'day_low': self.info.get('dayLow', None),
+            'market_cap': self.info.get('marketCap', None),
+            'regular_market_open': self.info.get('regularMarketOpen', None),
+            'trailing_pe': self.info.get('trailingPE', None),
+            'forward_pe': self.info.get('forwardPE', None),
+            'volume': self.info.get('volume', None),
+            'bid': self.info.get('bid', None),
+            'ask': self.info.get('ask', None),
+            'bid_size': self.info.get('bidSize', None),
+            'ask_size': self.info.get('askSize', None),
+            'price_to_sales_trailing_12months': self.info.get('priceToSalesTrailing12Months', None),
+            'price_to_book': self.info.get('priceToBook', None),
+            'fifty_day_average': self.info.get('fiftyDayAverage', None),
+            'two_hundred_day_average': self.info.get('twoHundredDayAverage', None)
+        }
+
+        try:
+            # From basic info (dynamic and static data)
+            new_record_basic_info = {
+                'last_price': basic_info.get('lastPrice', None),
+                'last_volume': basic_info.get('lastVolume', None),
+                'ten_day_average_volume': basic_info.get('tenDayAverageVolume', None),
+                'three_month_average_volume': basic_info.get('threeMonthAverageVolume', None),
+                'year_change': basic_info.get('yearChange', None),
+                'year_high': basic_info.get('yearHigh', None),
+                'year_low': basic_info.get('yearLow', None)
+            }
+        except:
+            new_record_basic_info = {
+                'last_price': None,
+                'last_volume': None,
+                'ten_day_average_volume': None,
+                'three_month_average_volume': None,
+                'year_change': None,
+                'year_high': None,
+                'year_low': None
+            }
+
+        new_record_data = {
+            **new_record_data,
+            **new_record_basic_info
         }
 
         if type(new_record_data['trailing_pe']) == str:
             new_record_data['trailing_pe'] = np.nan
             LOGGER.warning(f"{self.ticker.symbol} - {'Info Trading Session'.rjust(50)} - trailing_pe converted to np.nan")
+
+        if type(new_record_data['forward_pe']) == str:
+            new_record_data['forward_pe'] = np.nan
+            LOGGER.warning(f"{self.ticker.symbol} - {'Info Trading Session'.rjust(50)} - forward_pe converted to np.nan")
+
+        if type(new_record_data['price_to_sales_trailing_12months']) == str:
+            new_record_data['price_to_sales_trailing_12months'] = np.nan
+            LOGGER.warning(f"{self.ticker.symbol} - {'Info Trading Session'.rjust(50)} - price_to_sales_trailing_12months converted to np.nan")
 
         # Call the generic function to handle insert/update
         self.handle_generic_record_update(
@@ -887,15 +1000,17 @@ class TickerService(TickerServiceBase):
             model_class=InfoTradingSession
         )
 
-    def handle_insider_purchases(self, insider_purchases: pd.DataFrame) -> None:
+    def handle_insider_purchases(self) -> None:
         """
         Handle the insertion or update of insider purchases data into the database.
 
-        :param insider_purchases: DataFrame containing the insider purchases data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
+        insider_purchases = safe_execute(None, lambda: getattr(self.stock, "insider_purchases"))
+
         # __ if insider_purchases is empty, return __
-        if insider_purchases.empty:
+        if insider_purchases is None or (isinstance(insider_purchases, pd.DataFrame) and insider_purchases.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Insider Purchases'.rjust(50)} - no data to insert")
             return None
 
@@ -963,15 +1078,17 @@ class TickerService(TickerServiceBase):
                 model_class=InsiderPurchases
             )
 
-    def handle_insider_roster_holders(self, insider_roster_holders: pd.DataFrame) -> None:
+    def handle_insider_roster_holders(self) -> None:
         """
         Handle the insertion or update of insider roster holders data into the database.
 
-        :param insider_roster_holders: DataFrame containing the insider roster holders data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
-        # __ if insider_roster_holders is empty, return __
-        if insider_roster_holders.empty:
+        insider_roster_holders = safe_execute(None, lambda: getattr(self.stock, "insider_roster_holders"))
+
+        # __ if insider roster holders is empty, return __
+        if insider_roster_holders is None or (isinstance(insider_roster_holders, pd.DataFrame) and insider_roster_holders.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Insider Roster Holders'.rjust(50)} - no data to insert")
             return None
 
@@ -998,12 +1115,19 @@ class TickerService(TickerServiceBase):
             model_class=InsiderRosterHolders
         )
 
-    def handle_insider_transactions(self, insider_transactions: pd.DataFrame) -> None:
+    def handle_insider_transactions(self) -> None:
         """
         Handle the bulk update or insertion of insider transactions data into the database.
 
-        :param insider_transactions: DataFrame containing the insider transactions data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
+
+        insider_transactions = safe_execute(None, lambda: getattr(self.stock, "insider_transactions"))
+
+        # __ if insider transactions is empty, return __
+        if insider_transactions is None or (isinstance(insider_transactions, pd.DataFrame) and insider_transactions.empty):
+            LOGGER.warning(f"{self.ticker.symbol} - {'Insider Transactions'.rjust(50)} - no data to insert")
+            return None
 
         # __ if insider_transactions is empty, return __
         if insider_transactions.empty:
@@ -1022,15 +1146,17 @@ class TickerService(TickerServiceBase):
             model_class=InsiderTransactions
         )
 
-    def handle_institutional_holders(self, institutional_holders: pd.DataFrame) -> None:
+    def handle_institutional_holders(self) -> None:
         """
         Handle the insertion or update of institutional holders data into the database.
 
-        :param institutional_holders: DataFrame containing the institutional holders' data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
-        # __ if institutional_holders is empty, return __
-        if institutional_holders.empty:
+        institutional_holders = safe_execute(None, lambda: getattr(self.stock, "institutional_holders"))
+
+        # __ if institutional holders is empty, return __
+        if institutional_holders is None or (isinstance(institutional_holders, pd.DataFrame) and institutional_holders.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Institutional Holders'.rjust(50)} - no data to insert")
             return None
 
@@ -1056,15 +1182,17 @@ class TickerService(TickerServiceBase):
             model_class=InstitutionalHolders
         )
 
-    def handle_major_holders(self, major_holders: pd.DataFrame) -> None:
+    def handle_major_holders(self) -> None:
         """
         Handle the insertion or update of major holders data into the database from a DataFrame.
 
-        :param major_holders: DataFrame containing the major holders data as a single record.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
+        major_holders = safe_execute(None, lambda: getattr(self.stock, "major_holders"))
+
         # __ if major_holders is empty, return __
-        if major_holders.empty:
+        if major_holders is None or (isinstance(major_holders, pd.DataFrame) and major_holders.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Major Holders'.rjust(50)} - no data to insert")
             return None
 
@@ -1097,15 +1225,17 @@ class TickerService(TickerServiceBase):
             model_class=MajorHolders
         )
 
-    def handle_mutual_fund_holders_deprecated(self, mutual_fund_holders: pd.DataFrame) -> None:
+    def handle_mutual_fund_holders_deprecated(self) -> None:
         """
         Handle the insertion or update of mutual fund holders data into the database.
 
-        :param mutual_fund_holders: DataFrame containing the mutual fund holders data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
+        mutual_fund_holders = safe_execute(None, lambda: getattr(self.stock, "mutualfund_holders"))
+
         # __ if mutual_fund_holders is empty, return __
-        if mutual_fund_holders.empty:
+        if mutual_fund_holders is None or (isinstance(mutual_fund_holders, pd.DataFrame) and mutual_fund_holders.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to insert")
             return None
 
@@ -1142,16 +1272,18 @@ class TickerService(TickerServiceBase):
         if not changed:
             LOGGER.warning(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no changes detected")
 
-    def handle_mutual_fund_holders(self, mutual_fund_holders: pd.DataFrame) -> None:
+    def handle_mutual_fund_holders(self) -> None:
         """
         Handle the insertion or update of mutual fund holders data into the database.
 
-        :param mutual_fund_holders: DataFrame containing the mutual fund holders data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
+        mutual_fund_holders = safe_execute(None, lambda: getattr(self.stock, "mutualfund_holders"))
+
         # __ if mutual_fund_holders is empty, return __
-        if mutual_fund_holders.empty:
-            LOGGER.warning(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to process")
+        if mutual_fund_holders is None or (isinstance(mutual_fund_holders, pd.DataFrame) and mutual_fund_holders.empty):
+            LOGGER.warning(f"{self.ticker.symbol} - {'Mutual Fund Holders'.rjust(50)} - no data to insert")
             return None
 
         # __ check if the DataFrame is empty __
@@ -1176,15 +1308,17 @@ class TickerService(TickerServiceBase):
             model_class=MutualFundHolders
         )
 
-    def handle_recommendations(self, recommendations: pd.DataFrame) -> None:
+    def handle_recommendations(self) -> None:
         """
         Handle the insertion or update of recommendations data into the database.
 
-        :param recommendations: DataFrame containing the recommendations data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
+        recommendations = safe_execute(None, lambda: getattr(self.stock, "recommendations"))
+
         # __ if recommendations is empty, return __
-        if recommendations.empty:
+        if recommendations is None or (isinstance(recommendations, pd.DataFrame) and recommendations.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Recommendations'.rjust(50)} - no data to insert")
             return None
 
@@ -1284,15 +1418,17 @@ class TickerService(TickerServiceBase):
         if not changed:
             LOGGER.warning(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no changes detected")
 
-    def handle_upgrades_downgrades(self, upgrades_downgrades: pd.DataFrame) -> None:
+    def handle_upgrades_downgrades(self) -> None:
         """
         Handle the insertion or update of upgrades and downgrades data into the database.
 
-        :param upgrades_downgrades: DataFrame containing the upgrades and downgrades data.
+        :param stock: yf.Ticker object containing the insider purchases data.
         """
 
+        upgrades_downgrades = safe_execute(None, lambda: getattr(self.stock, "upgrades_downgrades"))
+
         # __ if upgrades_downgrades is empty, return __
-        if upgrades_downgrades.empty:
+        if upgrades_downgrades is None or (isinstance(upgrades_downgrades, pd.DataFrame) and upgrades_downgrades.empty):
             LOGGER.warning(f"{self.ticker.symbol} - {'Upgrades/Downgrades'.rjust(50)} - no data to insert")
             return None
 
@@ -1319,8 +1455,8 @@ class TickerService(TickerServiceBase):
         )
 
     # __ candles handling __
-    def handle_candle_data(self, interval: CandleDataInterval) -> None:
+    def handle_candle_data(self, interval: CandleDataInterval) -> bool:
         """
         Delegate the handling of candle data to the CandleService.
         """
-        self.candle_service.handle_candle_data(interval)
+        return self.candle_service.handle_candle_data(interval)

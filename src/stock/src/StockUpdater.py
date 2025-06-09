@@ -1,191 +1,159 @@
 import yfinance as yf
+import numpy as np
 import pandas as pd
 from time import time, sleep
+from typing import Optional
 from datetime import datetime, timedelta
+
+from numpy.array_api import floor
 from sqlalchemy.orm import session as sess
 from sqlalchemy import text
 
 from src.common.tools.library import seconds_to_time, safe_execute
 from src.stock.src.TickerService import TickerService
-from src.stock.src.database import session_local
+from src.stock.src.db.database import session_local
 from src.stock.src.CandleService import CandleDataInterval, CandleDataDay
-from src.stock.src.TickerLister import TickerLister
+from src.stock.src.Queries import Queries
+from src.stock.src.CandleBulkService import CandleBulkService
+from src.stock.src.TickerUpdater import TickerUpdater
 
-from logger_setup import LOGGER
+from logger_setup import LOGGER, error_handler
 import logging
-
-
-class RaiseOnErrorHandler(logging.Handler):
-    def emit(self, record):
-        log_message = self.format(record)
-        if record.levelname == "ERROR":
-            raise RuntimeError(f"yfinance ERROR: {log_message}")
-
-
-# Configure the logger for yfinance
-logger = logging.getLogger("yfinance")
-logger.setLevel(logging.ERROR)
-logger.addHandler(RaiseOnErrorHandler())
+from src.stock.src.RaiseOnErrorHandler import RaiseOnErrorHandler
 
 
 class StockUpdater:
     def __init__(self, session: sess.Session):
         self.session = session
 
-    @staticmethod
-    def execute_function(default, function, *args, label: str = ''):
+    def execute_function(self,
+                         default,
+                         function,
+                         *args,
+                         label: str = '',
+                         check_yf: bool = True) -> (Optional[pd.DataFrame], bool, str, str):
+        """ Executes a function with error handling and logging.
+        Args:
+            default: The default value to return in case of an error.
+            function: The function to execute.
+            *args: Arguments to pass to the function.
+            label (str): Label for logging purposes.
+            check_yf (bool): Whether to check for yfinance exceptions.
+        Returns:
+            Optional[pd.DataFrame]: The result of the function execution, or the default value in case of an error.
+            bool: True if the function executed successfully, False otherwise.
+            str: The status of the ticker.
+            str: The error message if an error occurred, otherwise an empty string.
+        Raises:
+            RuntimeError: If an error occurs during the function execution.
+
+        This method executes a function with the provided arguments and handles any exceptions that may occur.
+        It logs the error and returns a default value if an error occurs. If the function returns an empty DataFrame,
+        it checks for yfinance exceptions and handles them accordingly. If the symbol is delisted or not found, it updates the ticker status.
+        If the function executes successfully, it returns the result of the function execution.
+        If an error occurs, it logs the error and returns the default value.
+        """
+
         try:
-            return function(*args)
+            x =  function(*args)
         except RuntimeError as e:
-            if label in ["info_trading_session", "calendar", "actions"]: # TODO: handle each case separately
-                LOGGER.warning(f"{label} - {e}")
-                return default
             LOGGER.error(f"{e}")
-            return default
+            x = default
         except Exception as e:
             LOGGER.error(f"{e}")
-            return default
+            x = default
 
-    def update_all_tickers(self, symbols: list[str]):
+        if check_yf and isinstance(x, pd.DataFrame) and x.empty:
+            LOGGER.warning(f"{self.symbol} - Empty DataFrame returned from yfinance for {label}. Sleeping for 2.5 seconds to check for exceptions.")
+            sleep(2.5)  # Sleep to wait for the exception to be raised in the ErrorHandler
+            try:
+                error_handler.check_for_exception()  # Check and raise exception in the main thread
+            except RuntimeError as e:
+                lines = str(e).split('\n')
+                sublines = lines[1].split('\n') if len(lines) > 1 else []
+
+                if "yfinance ERROR:" in lines[0]:
+                    if "possibly delisted" in lines[1] or "may be delisted" in lines[1]:
+                        # LOGGER.warning(f"{self.symbol} - Ticker possibly delisted or not found.")
+                        # self.execute_function(None, lambda: self.ticker_service.handle_ticker_status(
+                        #     status="Possibly Delisted", error=sublines[0]), check_yf=False)
+                        return x, False, "Possibly Delisted", sublines[0]
+                    else:
+                        LOGGER.warning(f"{self.symbol} - Case not handled: {lines[0]} - {sublines[0]}")
+                        return x, False, lines[0], sublines[0]
+
+        return x, True, "", ""
+
+    def update_all_tickers(self, symbols: list[str]) -> dict:
         # __ start tracking the elapsed time __
         start_time = time()
+
+        middle_time_secs = 0
+        end_time_secs = 0
+        completed_symbols = 0
+
+        failed_symbols = []
 
         # __ update all tickers __
         for symbol in symbols:
             try:
-                self.update_ticker(symbol=symbol)
+                ticker_updater = TickerUpdater(session=self.session, symbol=symbol)
+                middle, end = ticker_updater.update_ticker(symbol=symbol)
+                middle_time_secs += middle
+                end_time_secs += end
+                completed_symbols += 1
             except RuntimeError as e:
                 LOGGER.error(f"{e}")
+                failed_symbols.append(symbol)
             except Exception as e:
                 LOGGER.warning(f"{symbol} - Error: {e}")
+                failed_symbols.append(symbol)
                 sleep(1)
 
         # __ stop tracking the elapsed time and print the stats __
         end_time = time()
         total_time = seconds_to_time(end_time - start_time)
+        average_time_middle = round(middle_time_secs / completed_symbols, 3) if completed_symbols > 0 else 0
+        average_time_end = round(end_time_secs / completed_symbols, 3) if completed_symbols > 0 else 0
+        total_time_str = f"{total_time['hours']} hours {total_time['minutes']} min {total_time['seconds']} sec"
+
+        LOGGER.info(f"{'Total elapsed time:'.ljust(25)} {total_time_str}")
+        LOGGER.info(f"{'Total tickers:'.ljust(25)} {len(symbols)}")
+        LOGGER.info(f"{'Completed symbols:'.ljust(25)} {completed_symbols}")
+        LOGGER.info(f"{'Failed symbols:'.ljust(25)} {len(symbols) - completed_symbols}")
+        LOGGER.info(f"{'Average time per ticker:'.ljust(25)} {round((end_time - start_time) / len(symbols), 3)} sec")
+
+        LOGGER.info(f"{'Average time per ticker (middle time):'.ljust(25)} {average_time_middle} sec")
+        LOGGER.info(f"{'Average time per ticker (end time):'.ljust(25)} {average_time_end} sec")
+
+        return {'total_time': total_time_str,
+                'completed_symbols': completed_symbols,
+                'failed_symbols': failed_symbols,
+                'average_time_middle': average_time_middle,
+                'average_time_end': average_time_end}
+
+    def update_only_candles_all_tickers(self, symbols: list[str]):
+        # __ start tracking the elapsed time __
+        start_time = time()
+
+        def split_into_batches(tickers, batch_size=500):
+            num_batches = -(-len(tickers) // batch_size)  # Equivalent to math.ceil(len(tickers) / batch_size)
+            return [list(batch) for batch in np.array_split(tickers, num_batches)]
+
+        num_of_batches = len(symbols) / 100
+        if num_of_batches - np.floor(num_of_batches) < 0.5:
+            batch_size = np.ceil(len(symbols) / np.floor(num_of_batches))
+        else:
+            batch_size = 100
+
+        batches = split_into_batches(symbols, batch_size=batch_size)
+
+        for batch in batches:
+            candle_bulk_service = CandleBulkService(session=self.session, symbols=batch, commit_enable=True)
+            candle_bulk_service.update_all_tickers_candles()
+
+        end_time = time()
+        total_time = seconds_to_time(end_time - start_time)
         LOGGER.info(f"{'Total elapsed time:'.ljust(25)} {total_time['hours']} hours {total_time['minutes']} min {total_time['seconds']} sec")
         LOGGER.info(f"{'Total tickers:'.ljust(25)} {len(symbols)}")
         LOGGER.info(f"{'Average time per ticker:'.ljust(25)} {round((end_time - start_time) / len(symbols), 3)} sec")
-
-    def update_ticker(self, symbol: str):
-        # __ start tracking the elapsed time __
-        start_time = time()
-        LOGGER.info(f"{symbol.rjust(5)} - Start updating...")
-
-        # __ check if the symbol is an index __
-        is_index = symbol.startswith("^")
-
-        # __ get all the data for a sample ticker from yahoo finance API __
-        stock = yf.Ticker(symbol)
-
-        # __ update the database with new data __
-        ticker_service = TickerService(session=self.session, symbol=symbol, commit_enable=True)
-
-        # __ ticker __
-        info = safe_execute(None, lambda: getattr(stock, "info"))
-
-        # __ handle ticker update/insert __
-        success_ticker = ticker_service.handle_ticker(info=stock.info) if info is not None else None
-        if not success_ticker:
-            self.execute_function(None, lambda: ticker_service.final_update_ticker())
-            return False
-
-        if not is_index:
-            self.execute_function(None, lambda: ticker_service.handle_balance_sheet(
-                balance_sheet=stock.balance_sheet,
-                period_type="annual"))
-            self.execute_function(None, lambda: ticker_service.handle_balance_sheet(
-                balance_sheet=stock.quarterly_balance_sheet,
-                period_type="quarterly"))
-            self.execute_function(None, lambda: ticker_service.handle_cash_flow(
-                cash_flow=stock.cashflow,
-                period_type="annual"))
-            self.execute_function(None, lambda: ticker_service.handle_cash_flow(
-                cash_flow=stock.quarterly_cashflow,
-                period_type="quarterly"))
-            self.execute_function(None, lambda: ticker_service.handle_financials(
-                financials=stock.financials,
-                period_type="annual"))
-            self.execute_function(None, lambda: ticker_service.handle_financials(
-                financials=stock.quarterly_financials,
-                period_type="quarterly"))
-            self.execute_function(None, lambda: ticker_service.handle_actions(actions=stock.actions), label='actions')
-            self.execute_function(None, lambda: ticker_service.handle_calendar(calendar=stock.calendar), label='calendar')
-
-            # __ earnings dates __
-            earning_dates = safe_execute(None, lambda: getattr(stock, "earnings_dates"))
-            self.execute_function(None, lambda: ticker_service.handle_earnings_dates(
-                earnings_dates=stock.earnings_dates)) if earning_dates is not None else None
-
-        # __ info __
-        if info is not None:
-            self.execute_function(None, lambda: ticker_service.handle_info_company_address(info_data=stock.info))
-            if not is_index:
-                self.execute_function(None, lambda: ticker_service.handle_sector_industry_history(info_data=stock.info))
-            self.execute_function(None, lambda: ticker_service.handle_info_target_price_and_recommendation(info_data=stock.info))
-            self.execute_function(None, lambda: ticker_service.handle_info_governance(info_data=stock.info))
-            self.execute_function(None, lambda: ticker_service.handle_info_cash_and_financial_ratios(info_data=stock.info))
-            self.execute_function(None, lambda: ticker_service.handle_info_market_and_financial_metrics(info_data=stock.info))
-
-            isin = safe_execute(None, lambda: getattr(stock, "isin"))
-            history_metadata = safe_execute(None, lambda: getattr(stock, "history_metadata"))
-            if isin is not None and history_metadata is not None:
-                self.execute_function(None, lambda: ticker_service.handle_info_general_stock(
-                    isin=stock.isin,
-                    info_data=stock.info,
-                    history_metadata=history_metadata))
-
-        if not is_index:
-            insider_purchases = safe_execute(None, lambda: getattr(stock, "insider_purchases"))
-            self.execute_function(None, lambda: ticker_service.handle_insider_purchases(
-                insider_purchases=insider_purchases)) if insider_purchases is not None else None
-
-            insider_roster_holders = safe_execute(None, lambda: getattr(stock, "insider_roster_holders"))
-            self.execute_function(None, lambda: ticker_service.handle_insider_roster_holders(
-                insider_roster_holders=insider_roster_holders), label="insider_roster_holders") if insider_roster_holders is not None else None
-
-            insider_transactions = safe_execute(None, lambda: getattr(stock, "insider_transactions"))
-            self.execute_function(None, lambda: ticker_service.handle_insider_transactions(
-                insider_transactions=insider_transactions)) if insider_transactions is not None else None
-
-            institutional_holders = safe_execute(None, lambda: getattr(stock, "institutional_holders"))
-            self.execute_function(None, lambda: ticker_service.handle_institutional_holders(
-                institutional_holders=institutional_holders)) if institutional_holders is not None else None
-
-            major_holders = safe_execute(None, lambda: getattr(stock, "major_holders"))
-            self.execute_function(None, lambda: ticker_service.handle_major_holders(
-                major_holders=major_holders), label="major_holders") if major_holders is not None else None
-
-            mutual_fund_holders = safe_execute(None, lambda: getattr(stock, "mutualfund_holders"))
-            self.execute_function(None, lambda: ticker_service.handle_mutual_fund_holders(
-                mutual_fund_holders=mutual_fund_holders)) if mutual_fund_holders is not None else None
-
-            recommendations = safe_execute(None, lambda: getattr(stock, "recommendations"))
-            self.execute_function(None, lambda: ticker_service.handle_recommendations(
-                recommendations=stock.recommendations)) if recommendations is not None else None
-
-            upgrades_downgrades = safe_execute(None, lambda: getattr(stock, "upgrades_downgrades"))
-            self.execute_function(None, lambda: ticker_service.handle_upgrades_downgrades(
-                upgrades_downgrades=stock.upgrades_downgrades)) if upgrades_downgrades is not None else None
-
-        if info is not None:
-            basic_info = safe_execute(None, lambda: getattr(stock, "basic_info"))
-            if basic_info is not None:
-                self.execute_function(None, lambda: ticker_service.handle_info_trading_session(
-                    info=stock.info,
-                    basic_info=stock.basic_info,
-                    history_metadata=stock.history_metadata),
-                    label="info_trading_session")
-
-        # __ handle candle data update/insert __
-        intervals = list(CandleDataInterval)
-        for interval in intervals:
-            self.execute_function(None, lambda: ticker_service.handle_candle_data(interval=interval))
-
-        self.execute_function(None, lambda: ticker_service.final_update_ticker())
-
-        # __ stop tracking the elapsed time and print the difference __
-        end_time = time()
-        total_time = seconds_to_time(end_time - start_time)
-        LOGGER.info(f"{symbol} - Total time: {total_time['minutes']} min {total_time['seconds']} sec\n")
-

@@ -1,14 +1,60 @@
 import pandas as pd
 from datetime import datetime, timedelta
+from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.orm import session as sess
-from src.stock.src.database import session_local
+from src.stock.src.db.database import session_local
 
 
+def apply_filter(func):
+    def wrapper(self, *args, **kwargs):
+        result = func(self, *args, **kwargs)
+        filter_func = object.__getattribute__(self, "__filter__")
+        if isinstance(result, list) and all(isinstance(x, str) for x in result):
+            return filter_func(result)
+        return result
+    return wrapper
+
+
+@dataclass
 class QueriesDB:
-    def __init__(self, session: sess.Session):
-        self.session = session
-    
+    session: sess.Session
+    remove_existing_db_tickers: bool = False
+    remove_not_existing_db_tickers: bool = False
+    remove_failed_candle_download_tickers: bool = False
+    remove_yfinance_error_tickers: bool = False
+
+    def __filter__(self, tickers: list[str]) -> list[str]:
+        if self.remove_existing_db_tickers:
+            tickers = self.__remove_tickers_present_in_db(tickers)
+        if self.remove_not_existing_db_tickers:
+            tickers = self.__remove_tickers_not_present_in_db(tickers)
+        if self.remove_failed_candle_download_tickers:
+            tickers = self.__remove_failed_candle_download_tickers(tickers)
+        if self.remove_yfinance_error_tickers:
+            tickers = self.__remove_tickers_yfinance_error(tickers)
+        return tickers
+
+    def __remove_tickers_present_in_db(self, tickers: list[str]) -> list[str]:
+        """Remove tickers that are already present in the database"""
+        tickers_db = self.__get_all_tickers()
+        return [x for x in tickers if x not in tickers_db]
+
+    def __remove_tickers_not_present_in_db(self, tickers: list[str]) -> list[str]:
+        """Remove tickers that are not present in the database"""
+        tickers_db = self.__get_all_tickers()
+        return [x for x in tickers if x in tickers_db]
+
+    def __remove_failed_candle_download_tickers(self, tickers: list[str]) -> list[str]:
+        """Remove tickers that failed to download candles"""
+        tickers_failed = self.__get_failed_candle_download_tickers()
+        return [x for x in tickers if x not in tickers_failed]
+
+    def __remove_tickers_yfinance_error(self, tickers: list[str]) -> list[str]:
+        """Remove tickers that have yfinance errors"""
+        tickers_yfinance_error = self.__get_yfinance_error_tickers()
+        return [x for x in tickers if x not in tickers_yfinance_error]
+
     def __execute_query_return_df(self, query: text) -> pd.DataFrame:
         result = self.session.execute(query)
         rows = result.fetchall()
@@ -20,8 +66,7 @@ class QueriesDB:
         rows = result.fetchall()
         return [x[0] for x in rows]
 
-    # __ LISTS __
-    def get_all_tickers(self) -> list[str]:
+    def __get_all_tickers(self) -> list[str]:
         query = text("""
             SELECT symbol
             FROM ticker
@@ -29,6 +74,35 @@ class QueriesDB:
         """)
         return self.__execute_query_return_list_of_first_element(query)
 
+    def __get_failed_candle_download_tickers(self) -> list[str]:
+        query = text("""
+            SELECT symbol
+            FROM ticker
+            WHERE failed_candle_download = True
+            ORDER BY symbol
+        """)
+        return self.__execute_query_return_list_of_first_element(query)
+
+    def __get_yfinance_error_tickers(self) -> list[str]:
+        query = text("""
+            SELECT DISTINCT symbol
+            FROM ticker T
+            JOIN ticker_status S ON T.id = S.ticker_id
+            ORDER BY symbol
+        """)
+        return self.__execute_query_return_list_of_first_element(query)
+
+    # __ LISTS __
+    @apply_filter
+    def get_all_tickers(self):
+        query = text("""
+            SELECT symbol
+            FROM ticker
+            ORDER BY symbol
+        """)
+        return self.__execute_query_return_list_of_first_element(query)
+
+    @apply_filter
     def get_tickers_not_updated_from_days(self, days: int = 5) -> list[str]:
         # Calculate the date limit (5 days ago)
         date_limit = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
@@ -40,7 +114,8 @@ class QueriesDB:
         """)
         return self.__execute_query_return_list_of_first_element(query)
 
-    def get_tickers_with_candles_not_updated_from_days(self, days: int = 5) -> list[str]:
+    @apply_filter
+    def get_tickers_with_day_candles_not_updated_from_days(self, days: int = 5) -> list[str]:
         # Calculate the date limit (5 days ago)
         date_limit = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
         query = text(f"""
@@ -57,6 +132,25 @@ class QueriesDB:
         """)
         return self.__execute_query_return_list_of_first_element(query)
 
+    @apply_filter
+    def get_tickers_with_week_candles_not_updated_from_days(self, days: int = 5) -> list[str]:
+        # Calculate the date limit (5 days ago)
+        date_limit = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+        query = text(f"""
+            WITH LatestUpdates AS (
+                SELECT ticker_id, MAX(last_update) AS max_last_update
+                FROM candle_data_week
+                GROUP BY ticker_id
+            )
+            SELECT T.symbol, LU.max_last_update
+            FROM ticker T
+            JOIN LatestUpdates LU ON T.id = LU.ticker_id
+            WHERE LU.max_last_update < '{date_limit}'
+            ORDER BY T.symbol
+        """)
+        return self.__execute_query_return_list_of_first_element(query)
+
+    @apply_filter
     def get_all_tickers_with_candlestick_analysis_not_updated(self) -> list[str]:
         """Get all symbols that have not been updated with the latest candlestick analysis"""
         query = text(f"""
@@ -72,28 +166,29 @@ class QueriesDB:
         """)
         return self.__execute_query_return_list_of_first_element(query)
 
+    @apply_filter
+    def get_failed_candle_download_tickers(self) -> list[str]:
+        query = text("""
+            SELECT symbol
+            FROM ticker
+            WHERE failed_candle_download = True
+            ORDER BY symbol
+        """)
+        return self.__execute_query_return_list_of_first_element(query)
+
+    @apply_filter
     def get_sp500_tickers(self) -> list[str]:
         query = text(f"""
             SELECT *
             FROM sp_500_historical
-            WHERE date = (
-                SELECT MAX(date)
-                FROM sp_500_historical
-            )
+            WHERE date = (SELECT MAX(date)  FROM sp_500_historical)
             ;
         """)
     
         # Execute the query through the session
-        results = self.session.execute(query).fetchall()
-    
-        results_as_dicts = [
-            {'date': result[0],
-             'symbol': result[1]
-             }
-            for result in results
-        ]
-    
-        return [results_as_dicts[x]['symbol'] for x in range(len(results_as_dicts))]
+        results = self.session.execute(query).mappings().all()
+
+        return [x['ticker_yfinance'] for x in results]
 
     # __ DATAFRAMES __
     def get_tickers_with_exchange(self) -> pd.DataFrame:
