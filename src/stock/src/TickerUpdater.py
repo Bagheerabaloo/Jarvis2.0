@@ -94,23 +94,22 @@ class TickerUpdater:
         self.session = session
         self.symbol = symbol
         self.ticker_service = None
-        self.info = None
         self.function_map = {}
         self.errors = []
+        self._set_is_index()
 
-    def update_ticker(self, symbol: str):
+    def _set_is_index(self):
+        self.is_index = self.symbol.startswith("^")
+
+    def update_ticker(self):
         # __ start tracking the elapsed time __
         start_time = time()
-        LOGGER.info(f"{symbol.rjust(5)} - Start updating...")
-
-        # __ check if the symbol is an index __
-        is_index = symbol.startswith("^")
 
         # __ get all the data for a sample ticker from yahoo finance API __
-        stock = yf.Ticker(symbol)
+        stock = yf.Ticker(self.symbol)
 
         # __ update the database with new data __
-        ticker_service = TickerService(session=self.session, symbol=symbol, commit_enable=True)
+        ticker_service = TickerService(session=self.session, symbol=self.symbol, commit_enable=True)
         ticker_service.set_stock(stock=stock)
         self.ticker_service = ticker_service
         self.set_mapping()  # Set the mapping of ticker update statuses to functions
@@ -126,11 +125,11 @@ class TickerUpdater:
         success_ticker = ticker_service.handle_ticker(info=info, error=error, status=status)
         if not success_ticker:
             self.execute_function(None, ticker_service.final_update_ticker)
-            LOGGER.warning(f"{symbol} - Ticker not updated - sleeping 30 seconds")
+            LOGGER.warning(f"{self.symbol} - Ticker not updated - sleeping 30 seconds")
             sleep(30)
             return False
 
-        if not is_index:
+        if not self.is_index:
             self.map_and_execute_function(TickerUpdaterStatus.BALANCE_SHEET_ANNUAL)
             self.map_and_execute_function(TickerUpdaterStatus.BALANCE_SHEET_QUARTERLY)
             self.map_and_execute_function(TickerUpdaterStatus.CASH_FLOW_ANNUAL)
@@ -157,22 +156,22 @@ class TickerUpdater:
             self.map_and_execute_function(TickerUpdaterStatus.INFO_MARKET_AND_FINANCIAL_METRICS)
             self.map_and_execute_function(TickerUpdaterStatus.INFO_GENERAL_STOCK)
             self.map_and_execute_function(TickerUpdaterStatus.INFO_TRADING_SESSION)
-            if not is_index:
+            if not self.is_index:
                 self.map_and_execute_function(TickerUpdaterStatus.SECTOR_INDUSTRY_HISTORY)
 
         before_candle_time = time()
 
         # __ handle candle data update/insert __
-        intervals = list(CandleDataInterval)
-        for interval in intervals:
-            self.execute_function(None, ticker_service.handle_candle_data, interval=interval)
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MONTH)
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_WEEK)
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_DAY)
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_HOUR)
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MINUTE_5)
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MINUTE_1)
 
-            # self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MONTH)
-            # self.map_and_execute_function(TickerUpdaterStatus.CANDLE_WEEK)
-            # self.map_and_execute_function(TickerUpdaterStatus.CANDLE_DAY)
-            # self.map_and_execute_function(TickerUpdaterStatus.CANDLE_HOUR)
-            # self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MINUTE_5)
-            # self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MINUTE_1)
+        # intervals = list(CandleDataInterval)
+        # for interval in intervals:
+        #     self.execute_function(None, ticker_service.handle_candle_data, interval=interval)
 
         if len(self.errors) > 0:
             yf_errors = self.check_yfinance_exceptions()
@@ -184,7 +183,7 @@ class TickerUpdater:
         before_candle_time_secs = before_candle_time - start_time
         total_time_secs = end_time - start_time
         total_time = seconds_to_time(total_time_secs)
-        LOGGER.info(f"{symbol} - Total time: {total_time['minutes']} min {total_time['seconds']} sec\n")
+        LOGGER.info(f"{self.symbol} - Total time: {total_time['minutes']} min {total_time['seconds']} sec\n")
         return before_candle_time_secs, total_time_secs
 
     def set_mapping(self):

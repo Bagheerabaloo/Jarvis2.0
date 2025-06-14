@@ -46,9 +46,21 @@ def refresh_materialized_views(session: sess.Session):
     session.close()
 
 
+def set_up_telegram_bot():
+    telegram_token_key = "TELEGRAM_TOKEN"
+    config_manager = FileManager()
+    token = config_manager.get_telegram_token(database_key=telegram_token_key)
+    admin_info = config_manager.get_admin()
+    telegram_bot = TelegramBot(token=token)
+    return admin_info, telegram_bot
+
+
 def main(process_name_: str = None, limit: int = 3000, add_sp500: bool = True, refresh_materialized: bool = True):
     # __ sqlAlchemy __ create new session
     session = session_local()
+
+    # __ set up telegram bot __
+    admin_info, telegram_bot = set_up_telegram_bot()
 
     # __ get tickers __
     tl = Queries(session, remove_yfinance_error_tickers=True)
@@ -95,25 +107,14 @@ def main(process_name_: str = None, limit: int = 3000, add_sp500: bool = True, r
     # __ sqlAlchemy __ close the session
     session.close()
 
-    telegram_token_key = "TELEGRAM_TOKEN"
-    config_manager = FileManager()
-    token = config_manager.get_telegram_token(database_key=telegram_token_key)
-    admin_info = config_manager.get_admin()
-    telegram_bot = TelegramBot(token=token)
-
-    """    {'total_time': total_time_str,
-    'completed_symbols': completed_symbols,
-    'failed_symbols': failed_symbols,
-    'average_time_middle': average_time_middle,
-    'average_time_end': average_time_end}"""
-
     text1 = f"Analysis completed for {len(symbols)} tickers"
     text2 = f"Completed symbols: {results['completed_symbols']}"
     text3 = f"Failed symbols: {', '.join(results['failed_symbols'])}"
     text4 = f"Total time taken: {results['total_time']}"
-    text5 = f"Average time taken: {results['average_time_end']:.2f} seconds per ticker"
+    text5 = f"Average time taken (middle): {results['average_time_middle']:.2f} seconds per ticker"
+    text6 = f"Average time taken: {results['average_time_end']:.2f} seconds per ticker"
 
-    text_ = f"{text1}\n{text2}\n{text3}\n{text4}\n{text5}"
+    text_ = f"{text1}\n{text2}\n{text3}\n{text4}\n{text5}\n{text6}"
 
     asyncio.run(telegram_bot.send_message(chat_id=admin_info["chat"], text=f"{text_}"))
 
@@ -182,6 +183,6 @@ if __name__ == '__main__':
     if process_name == 'scheduled':
         main(process_name)
     else:
-        main(process_name, limit=10, add_sp500=False, refresh_materialized=False)
+        main(process_name, limit=500, add_sp500=False, refresh_materialized=False)
         # update_only_candles(process_name)
     # plot_candles()

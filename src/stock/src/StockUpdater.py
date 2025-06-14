@@ -10,12 +10,13 @@ from sqlalchemy.orm import session as sess
 from sqlalchemy import text
 
 from src.common.tools.library import seconds_to_time, safe_execute
+from src.stock.src.CandleBulkService import CandleBulkService
+from src.stock.src.TickerUpdater import TickerUpdater
 from src.stock.src.TickerService import TickerService
 from src.stock.src.db.database import session_local
 from src.stock.src.CandleService import CandleDataInterval, CandleDataDay
 from src.stock.src.Queries import Queries
-from src.stock.src.CandleBulkService import CandleBulkService
-from src.stock.src.TickerUpdater import TickerUpdater
+
 
 from logger_setup import LOGGER, error_handler
 import logging
@@ -85,6 +86,8 @@ class StockUpdater:
         return x, True, "", ""
 
     def update_all_tickers(self, symbols: list[str]) -> dict:
+        num_symbols = len(symbols)
+
         # __ start tracking the elapsed time __
         start_time = time()
 
@@ -95,10 +98,11 @@ class StockUpdater:
         failed_symbols = []
 
         # __ update all tickers __
-        for symbol in symbols:
+        for index, symbol in enumerate(symbols):
             try:
                 ticker_updater = TickerUpdater(session=self.session, symbol=symbol)
-                middle, end = ticker_updater.update_ticker(symbol=symbol)
+                LOGGER.info(f"{symbol.rjust(5)} - {index+1}/{num_symbols} - Start updating...")
+                middle, end = ticker_updater.update_ticker()
                 middle_time_secs += middle
                 end_time_secs += end
                 completed_symbols += 1
