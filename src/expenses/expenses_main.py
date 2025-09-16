@@ -67,7 +67,7 @@ class Expenses:
         new_txs_filt = self.filter_new_txs(old_txs, new_txs)
 
         # __ add cc details to new txs __
-        new_txs_filt_cc = self.add_cc_details(new_txs_filt, cc_details)
+        new_txs_filt_cc = self.merge_cc_details(new_txs_filt, cc_details)
 
         # __ assign categories and macro categories __
         new_txs_filt_cc_cats = self.add_categories(old_txs, new_txs_filt_cc)
@@ -262,6 +262,138 @@ class Expenses:
             "Categoria", "Accrediti in valuta", "Addebiti in valuta", "Credit Card"]
         remaining_cols = [x for x in joined_df.columns if x not in sorted_col]
         joined_df = joined_df[sorted_col + remaining_cols]
+
+        return joined_df
+
+    def merge_cc_details(self, txs_new: pd.DataFrame, cc_details: pd.DataFrame) -> pd.DataFrame:
+        # Work on copies to avoid side effects
+        txs_new = txs_new.copy()
+        cc_details = cc_details.copy()
+
+        # Normalize column name "Categoria "
+        if "Categoria " in txs_new.columns:
+            txs_new = txs_new.rename(columns={"Categoria ": "Categoria"})
+
+        # --- 1) Find rows present in cc_details but missing in txs_new (anti-join on Data Valuta + Importo)
+        tx_keys = txs_new[["Data Valuta", "Importo"]].drop_duplicates()
+        cc_missing = (
+            cc_details
+            .merge(tx_keys, on=["Data Valuta", "Importo"], how="left", indicator=True)
+            .loc[lambda df: df["_merge"] == "left_only"]
+            .drop(columns=["_merge"])
+            .copy()
+        )
+
+        # Drop cc_missing rows before the minimum txs_new date
+        min_tx_date = pd.to_datetime(txs_new["Data Valuta"], errors="coerce").min()
+        cc_missing = cc_missing[pd.to_datetime(cc_missing["Data Valuta"], errors="coerce") >= min_tx_date]
+
+        # --- Defaults -------------------------------------------------------------
+        # Default currency: always EUR
+        default_valuta = "EUR"
+
+        # Default "Conto o carta": pick a value from txs_new that contains "CLASSIC CARD"
+        if "Conto o carta" in txs_new.columns:
+            # Prefer rows explicitly marked as credit card when available
+            if "Credit Card" in txs_new.columns:
+                candidates_cc = (
+                    txs_new.loc[txs_new["Credit Card"] == "Y", "Conto o carta"]
+                    .dropna()
+                    .astype(str)
+                )
+            else:
+                candidates_cc = pd.Series(dtype=object)
+
+            candidates_all = txs_new["Conto o carta"].dropna().astype(str)
+
+            def pick_classic(s: pd.Series) -> str:
+                if s.empty:
+                    return ""
+                hits = s[s.str.contains("CLASSIC CARD", case=False, na=False)]
+                return hits.iloc[0] if not hits.empty else ""
+
+            default_conto = pick_classic(candidates_cc)
+            if not default_conto:
+                default_conto = pick_classic(candidates_all)
+        else:
+            default_conto = ""
+
+        # --- 2) Map missing cc rows to txs_new layout with sensible defaults ------
+        df_missing_tx = pd.DataFrame(columns=txs_new.columns)
+        if not cc_missing.empty:
+            df_missing_tx = pd.DataFrame({
+                # Keep cc "Data Contabile" if available; otherwise fall back to "Data Valuta"
+                "Data Contabile": cc_missing["Data Contabile"] if "Data Contabile" in cc_missing.columns else cc_missing["Data Valuta"],
+                "Data Valuta": cc_missing["Data Valuta"],
+                "Operazione": cc_missing["Operazione"],
+                "Importo": cc_missing["Importo"],
+                # Currency: always EUR if not present
+                "Valuta": cc_missing["Valuta"] if "Valuta" in cc_missing.columns else default_valuta,
+                "Dettagli": cc_missing["Dettagli"] if "Dettagli" in cc_missing.columns else "",
+                # Account/card: choose value containing "CLASSIC CARD" from txs_new if not present
+                "Conto o carta": cc_missing["Conto o carta"] if "Conto o carta" in cc_missing.columns else default_conto,
+                # Category: default is always None if not present
+                "Categoria": cc_missing["Categoria"] if "Categoria" in cc_missing.columns else None,
+                "Accrediti in valuta": cc_missing["Accrediti in valuta"] if "Accrediti in valuta" in cc_missing.columns else None,
+                "Addebiti in valuta": cc_missing["Addebiti in valuta"] if "Addebiti in valuta" in cc_missing.columns else None,
+                "Credit Card": "Y"
+            })
+
+            # Ensure all txs_new columns exist and order them accordingly
+            for col in txs_new.columns:
+                if col not in df_missing_tx.columns:
+                    df_missing_tx[col] = None
+            df_missing_tx = df_missing_tx[txs_new.columns]
+
+            # Append missing cc rows to txs_new
+            txs_new = pd.concat([txs_new, df_missing_tx], ignore_index=True)
+
+            # sort txs_new by Data Valuta
+            txs_new = txs_new.sort_values(by='Data Valuta').reset_index(drop=True)
+
+        # --- 3) Enrich txs_new with cc_details (merge on Data Valuta + Importo)
+        cc_ren = cc_details.rename(columns={"Operazione": "Operazione_cc"})
+        joined_df = txs_new.merge(cc_ren, on=["Data Valuta", "Importo"], how="left", suffixes=("", "_cc"))
+
+        # Consider it a cc match if we got a non-empty Operazione_cc from cc_details
+        joined_df["Operazione_cc"] = joined_df["Operazione_cc"].fillna("")
+        joined_df["match"] = joined_df["Operazione_cc"].ne("")
+
+        # --- 4) Robust description similarity check
+        def is_similar_description(x):
+            a = str(x.get("Operazione", "")).strip().lower()
+            b = str(x.get("Operazione_cc", "")).strip().lower()
+            if not b:
+                return False
+            if a in b or b in a:
+                return True
+            a0 = a.split(" ")[0].strip("*")
+            b0 = b.split(" ")[0].strip("*")
+            if a0 and b0 and a0 == b0:
+                return True
+            if len(a) > 5 and len(b) > 5 and a[5] == b[5]:
+                return True
+            return False
+
+        joined_df["cc_similar_description"] = joined_df.apply(is_similar_description, axis=1)
+
+        # --- 5) Diagnostics: credit card rows without match and without similar description
+        mask_warn = (joined_df.get("Credit Card", "") == "Y") & (~joined_df["match"]) & (~joined_df["cc_similar_description"])
+        for _, row in joined_df.loc[mask_warn].reset_index(drop=True).iterrows():
+            print("CREDIT CARD NO DETAILS: ", row.get("Data Valuta"), row.get("Importo"),
+                  str(row.get("Operazione", "")).rjust(25), row.get("Operazione_cc", ""))
+
+        # --- 6) For NON credit card rows, set Data Contabile = Data Valuta
+        mask_non_cc = (joined_df.get("Credit Card", "") != "Y")
+        joined_df.loc[mask_non_cc, "Data Contabile"] = joined_df.loc[mask_non_cc, "Data Valuta"]
+
+        # --- 7) Final column order: keep core columns first, everything else after
+        core_cols = [
+            "Data Contabile", "Data Valuta", "Operazione", "Valuta", "Dettagli", "Conto o carta",
+            "Categoria", "Accrediti in valuta", "Addebiti in valuta", "Credit Card"
+        ]
+        remaining_cols = [c for c in joined_df.columns if c not in core_cols]
+        joined_df = joined_df[core_cols + remaining_cols]
 
         return joined_df
 

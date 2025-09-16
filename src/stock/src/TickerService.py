@@ -17,6 +17,7 @@ from src.stock.src.db.models import InsiderPurchases, InsiderRosterHolders, Insi
 from src.stock.src.db.models import UpgradesDowngrades
 from src.stock.src.CandleService import CandleService
 from src.stock.src.CandleDataInterval import CandleDataInterval
+from src.stock.src.insider_txs_utils import add_state_and_price
 
 from logger_setup import LOGGER
 
@@ -1115,6 +1116,9 @@ class TickerService(TickerServiceBase):
             model_class=InsiderRosterHolders
         )
 
+        # __ return len of insider_roster_holders __
+        return insider_roster_holders.shape[0]
+
     def handle_insider_transactions(self) -> None:
         """
         Handle the bulk update or insertion of insider transactions data into the database.
@@ -1139,6 +1143,9 @@ class TickerService(TickerServiceBase):
 
         # __ convert relevant columns to appropriate types __
         insider_transactions['start_date'] = pd.to_datetime(insider_transactions['start_date'])
+
+        # __ extract state and price __
+        insider_transactions = add_state_and_price(insider_transactions, text_col="text", price_col="price", state_col="state")
 
         # __ call the bulk update handler __
         self.handle_generic_bulk_update(
@@ -1455,7 +1462,7 @@ class TickerService(TickerServiceBase):
         )
 
     # __ candles handling __
-    def handle_candle_data(self, interval: CandleDataInterval) -> bool:
+    def handle_candle_data(self, interval: CandleDataInterval) -> int:
         """
         Delegate the handling of candle data to the CandleService.
         """

@@ -4,6 +4,21 @@ pg_dump -U postgres -d stock -t ticker -f data/db_backup/ticker.sql
 
 
 --------- ALEMBIC -----------
+
+Per stock continui a usare l’ambiente vecchio (il tuo alembic.ini originale).
+Per autoscout userai sempre -c alembic_autoscout.ini.
+
+Esempi:
+
+rem MIGRAZIONI AUTOSCOUT
+alembic -c alembic_autoscout.ini current
+alembic -c alembic_autoscout.ini upgrade head
+
+rem MIGRAZIONI STOCK
+alembic -c alembic.ini current
+alembic -c alembic.ini upgrade head
+
+
 1. Initialize Alembic
 This creates an alembic directory and an alembic.ini configuration file.
 
@@ -23,10 +38,18 @@ In the env.py file, link your SQLAlchemy models by importing the Base metadata f
     target_metadata = Base.metadata
 
 
+4.0 Check current alembic in use
+    alembic current
+
 4. Generate a new migration
 To create a migration for database changes:
 
     alembic revision --autogenerate -m "Initial migration"
+
+    or
+
+    alembic -c alembic_autoscout.ini revision -m "add maps_href to listing_details"
+
 
 5. Apply the migration
 To apply the migration and bring the database schema up to date:

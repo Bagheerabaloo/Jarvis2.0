@@ -190,6 +190,10 @@ class QueriesDB:
 
         return [x['ticker_yfinance'] for x in results]
 
+    @apply_filter
+    def get_yfinance_error_tickers(self) -> list[str]:
+        return self.__get_yfinance_error_tickers()
+
     # __ DATAFRAMES __
     def get_tickers_with_exchange(self) -> pd.DataFrame:
         query = text(f"""
@@ -200,6 +204,7 @@ class QueriesDB:
             ;
         """)
         return self.__execute_query_return_df(query)
+
 
     def get_all_tickers_info(self) -> pd.DataFrame:
         query = text(f"""
@@ -249,6 +254,17 @@ class QueriesDB:
             --     AND G.exchange = 'ASE' -- NYSE MKT
                 AND G.exchange != 'NCM' -- NOT 'NCM'
             ORDER BY T.market_cap DESC;
+        """)
+        return self.__execute_query_return_df(query)
+
+
+    def get_insider_transactions(self) -> pd.DataFrame:
+        query = text(f"""
+            SELECT T.symbol, IT.transaction_date, IT.transaction_type, IT.shares, IT.price, IT.total_value, IT.owner_name, IT.owner_type
+            FROM insider_transaction IT
+            JOIN ticker T ON IT.ticker_id = T.id
+            WHERE IT.transaction_date >= (CURRENT_DATE - INTERVAL '30 days')
+            ORDER BY IT.transaction_date DESC;
         """)
         return self.__execute_query_return_df(query)
 

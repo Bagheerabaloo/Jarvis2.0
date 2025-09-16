@@ -676,6 +676,11 @@ class InsiderTransactions(Base):
     transaction = Column(String(255), nullable=True)                                        # Type of transaction
     ownership = Column(String(3), nullable=True)                                            # Ownership type (D for Direct, I for Indirect)
 
+    price      = Column(String(64), nullable=True)                                          # "25.64" or "25.64-26.33"
+    avg_price  = Column(Numeric(18, 6), nullable=True)                        # average price
+    state      = Column(String(24), nullable=True)                                          # "Entry" | "Exit" | "Passive/Scheduled"
+
+
     # Define relationship to the Ticker class
     ticker = relationship("Ticker", back_populates="insider_transactions")
 

@@ -47,7 +47,7 @@ class CandleService(TickerServiceBase):
         return interval in {CandleDataInterval.MINUTE_1, CandleDataInterval.MINUTE_5, CandleDataInterval.HOUR}
 
     """ Handle the insertion or update of candlestick data for a given ticker in the DB"""
-    def handle_candle_data(self, interval: CandleDataInterval) -> bool:
+    def handle_candle_data(self, interval: CandleDataInterval) -> int:
         """
         Handle the bulk update or insertion of candlestick data into the database.
 
@@ -78,7 +78,10 @@ class CandleService(TickerServiceBase):
         # __ check if the candle data is empty __
         if candle_data is None or candle_data.empty:
             LOGGER.warning(f"{self.ticker.symbol} - {'Candle Data'.rjust(50)} - no new candle data available")
-            return False
+            return 0
+
+        # __ get length of the candle data __
+        candle_data_len = candle_data.shape[0] if isinstance(candle_data, pd.DataFrame) else 0
 
         # __ prepare the candle data for insertion or update __
         candle_data = self.prepare_candle_data(candle_data, interval)
@@ -89,7 +92,7 @@ class CandleService(TickerServiceBase):
             new_records = self.create_candle_data_list_of_records(df=candle_data, model_class=model_class, interval=interval)
             # __ perform the bulk insert __
             self.bulk_insert_records(records_to_insert=new_records, model_class_name=model_class_name)
-            return True
+            return candle_data_len
 
         # __ filter out candles that are older than the last_candle's date __
         last_date = last_candle.date
@@ -122,7 +125,8 @@ class CandleService(TickerServiceBase):
             new_records = self.create_candle_data_list_of_records(df=new_data_df, model_class=model_class, interval=interval)
             # __ perform the bulk insert __
             self.bulk_insert_records(records_to_insert=new_records, model_class_name=model_class_name)
-            return True
+
+        return candle_data_len
 
     def download_candle_data(self, interval: CandleDataInterval, period: str) -> Optional[pd.DataFrame]:
         """

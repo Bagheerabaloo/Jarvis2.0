@@ -39,6 +39,7 @@ def refresh_materialized_views(session: sess.Session):
     session.execute(text("REFRESH MATERIALIZED VIEW mv_ticker_overview;"))
     session.execute(text("REFRESH MATERIALIZED VIEW mv_pe;"))
     session.execute(text("REFRESH MATERIALIZED VIEW mv_next_earnings_per_ticker;"))
+    session.execute(text("REFRESH MATERIALIZED VIEW mv_monthly_net_insider_transactions;"))
     session.commit()
     LOGGER.info("Materialized views refreshed.")
 
@@ -55,35 +56,30 @@ def set_up_telegram_bot():
     return admin_info, telegram_bot
 
 
-def main(process_name_: str = None, limit: int = 3000, add_sp500: bool = True, refresh_materialized: bool = True):
-    # __ sqlAlchemy __ create new session
-    session = session_local()
-
-    # __ set up telegram bot __
-    admin_info, telegram_bot = set_up_telegram_bot()
-
+def select_tickers(session: sess.Session, limit: int = 3000, add_sp500: bool = True):
     # __ get tickers __
-    tl = Queries(session, remove_yfinance_error_tickers=True)
+    queries_1 = Queries(session, remove_yfinance_error_tickers=True)
+    queries_2 = Queries(session, remove_yfinance_error_tickers=True)
+
     # symbols = tl.tickers_sp500_from_wikipedia()
-    # symbols = tl.get_sp500_tickers()
     # symbols = tl.get_indexes_tickers()
     # symbols = tl.get_nasdaq_tickers()
     # symbols = tl.get_nyse_tickers()
     # symbols = tl.get_tickers_with_candles_not_updated_from_days(days=5)
+    # etf_symbols = tl.get_etf_tickers()
+
+    sp500_symbols = queries_1.get_sp500_tickers()
     symbols = sorted(list(set(
         []
-        + tl.get_tickers_not_updated_from_days(days=5)
-        + tl.get_tickers_with_day_candles_not_updated_from_days(days=5)
-        # + tl.get_sp500_tickers()
-        # + tl.get_etf_tickers()
+        + queries_1.get_tickers_not_updated_from_days(days=5)
+        + queries_1.get_tickers_with_day_candles_not_updated_from_days(days=5)
     )))
 
     if add_sp500 and len(symbols) < 2495 and 0 < datetime.now().weekday() < 6:  # 1-5 are Monday to Friday
         LOGGER.info("Adding S&P 500 tickers to the list...")
         symbols = sorted(list(set(
             symbols
-            + tl.get_sp500_tickers()
-            # + tl.get_etf_tickers()
+            + sp500_symbols
         )))
 
     # __ remove tickers already present in DB __
@@ -95,7 +91,39 @@ def main(process_name_: str = None, limit: int = 3000, add_sp500: bool = True, r
     # __ limit the number of tickers __
     symbols = symbols[:limit]
 
-    print(process_name_)
+    LOGGER.info(f"{'Tickers after limit:'.ljust(25)} {len(symbols)}")
+
+    return symbols
+
+
+def select_only_yfinance_error_tickers(session: sess.Session, limit: int = 3000):
+    # __ get tickers __
+    queries = Queries(session)
+    symbols = queries.get_yfinance_error_tickers()
+
+    # __ print the number of tickers __
+    LOGGER.info(f"{'Total tickers:'.ljust(25)} {len(symbols)}")
+
+    return symbols
+
+def main(process_name_: str = None,
+         limit: int = 3000,
+         add_sp500: bool = True,
+         only_yf_error: bool = False,
+         refresh_materialized: bool = True):
+    # __ sqlAlchemy __ create new session
+    session = session_local()
+
+    # __ set up telegram bot __
+    admin_info, telegram_bot = set_up_telegram_bot()
+
+    if only_yf_error:
+        # __ get only yfinance error tickers __
+        symbols = select_only_yfinance_error_tickers(session=session, limit=limit)
+    else:
+        symbols = select_tickers(session=session, limit=limit, add_sp500=add_sp500)
+
+    LOGGER.info(process_name_)
 
     stock_updater = StockUpdater(session=session)
     results = stock_updater.update_all_tickers(symbols=symbols)
@@ -183,6 +211,6 @@ if __name__ == '__main__':
     if process_name == 'scheduled':
         main(process_name)
     else:
-        main(process_name, limit=500, add_sp500=False, refresh_materialized=False)
+        main(process_name, limit=100, add_sp500=False, only_yf_error=False, refresh_materialized=False)
         # update_only_candles(process_name)
     # plot_candles()

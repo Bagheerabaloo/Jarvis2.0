@@ -172,3 +172,42 @@ LEFT JOIN mv_recent_candle_data_day rcd
 -- LEFT JOIN to sp_500_latest_date by symbol
 LEFT JOIN sp_500_latest_date sp
        ON sp.ticker_yfinance = t.symbol;
+
+
+-- Monthly BUY/SELL and NET dollar volume by ticker
+CREATE materialized VIEW public.mv_monthly_net_insider_transactions AS
+WITH m AS (
+  SELECT
+    t.ticker_id,
+    DATE_TRUNC('month', t.start_date) AS month,
+    SUM(CASE WHEN t.state='Entry' AND COALESCE(t.avg_price,0) > 0 THEN t.value ELSE 0 END) AS buy_value_usd,
+    SUM(CASE WHEN t.state='Exit'                                             THEN t.value ELSE 0 END) AS sell_value_usd,
+    SUM(CASE WHEN t.state='Entry' AND COALESCE(t.avg_price,0) > 0 THEN t.shares ELSE 0 END) AS buy_shares,
+    SUM(CASE WHEN t.state='Exit'                                             THEN t.shares ELSE 0 END) AS sell_shares,
+    COUNT(*) FILTER (WHERE t.state='Entry' AND COALESCE(t.avg_price,0) > 0) AS buy_tx,
+    COUNT(*) FILTER (WHERE t.state='Exit')                                   AS sell_tx
+  FROM insider_transactions t
+  WHERE t.value IS NOT NULL
+  GROUP BY t.ticker_id, DATE_TRUNC('month', t.start_date)
+)
+SELECT
+  tk.symbol AS ticker,
+  m.month,
+  m.buy_value_usd,
+  m.sell_value_usd,
+  (m.buy_value_usd - m.sell_value_usd)      AS net_value_usd,
+  m.buy_shares,
+  m.sell_shares,
+  (m.buy_shares - m.sell_shares)            AS net_shares,
+  m.buy_tx,
+  m.sell_tx
+FROM m
+JOIN ticker tk ON tk.id = m.ticker_id
+ORDER BY month desc, buy_value_usd DESC;                 -- change to buy_value_usd DESC if you prefer
+
+
+CREATE VIEW public.v_monthly_net_insider_transactions AS
+SELECT *
+FROM public.mv_monthly_net_insider_transactions;
+
+DROP VIEW v_monthly_net_insider_transactions;

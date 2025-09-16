@@ -159,6 +159,39 @@ class TelegramBot:
     def send_document(self, chat_id, document):
         return self.__send_document(chat_id=chat_id, document=document)
 
+    async def send_photo_async(self, chat_id, photo, caption=None,
+                               parse_mode=None, reply_keyboard=None,
+                               remove_keyboard=False, inline_keyboard=None,
+                               silent=True):
+        """Send a photo (with optional caption) using the same retry policy as send_message."""
+        reply_mark_up = self.__build_keyboard(remove_keyboard=remove_keyboard,
+                                              reply_keyboard=reply_keyboard,
+                                              inline_keyboard=inline_keyboard)
+
+        num_of_tries = 0
+        max_tries = 10
+        response = None
+        while not response and num_of_tries < max_tries:
+            try:
+                response = await self.__send_photo(
+                    chat_id=chat_id,
+                    photo=photo,
+                    caption=caption,
+                    parse_mode=parse_mode,
+                    reply_mark_up=reply_mark_up,
+                    silent=silent,
+                )
+            except telegram.error.Forbidden:
+                num_of_tries = max_tries
+                continue
+            except Exception as e:
+                sleep(1)
+                num_of_tries += 1
+                print(e)
+                print(f"Timeout error - trying to send photo again - chat_id: {chat_id}")
+                continue
+        return response
+
     # __ Public edit methods __
     def edit_inline_keyboard(self, reply_markup, chat_id=None, message_id=None, inline_message_id=None):
         reply_markup = self.__build_keyboard(inline_keyboard=reply_markup) if reply_markup else None

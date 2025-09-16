@@ -96,6 +96,7 @@ class TickerUpdater:
         self.ticker_service = None
         self.function_map = {}
         self.errors = []
+        self.results_len = {}
         self._set_is_index()
 
     def _set_is_index(self):
@@ -124,9 +125,13 @@ class TickerUpdater:
         # __ handle ticker update/insert __
         success_ticker = ticker_service.handle_ticker(info=info, error=error, status=status)
         if not success_ticker:
+            yf_errors = self.check_yfinance_exceptions()
+            if len(yf_errors):
+                print('passing yf_errors')
+            self.execute_function(None, lambda: self.ticker_service.handle_ticker_status(status=status, error=error))
             self.execute_function(None, ticker_service.final_update_ticker)
             LOGGER.warning(f"{self.symbol} - Ticker not updated - sleeping 30 seconds")
-            sleep(30)
+            sleep(1)
             return False
 
         if not self.is_index:
@@ -173,7 +178,7 @@ class TickerUpdater:
         # for interval in intervals:
         #     self.execute_function(None, ticker_service.handle_candle_data, interval=interval)
 
-        if len(self.errors) > 0:
+        if not any([x for x in self.results_len if type(self.results_len[x]) == int and len(self.results_len) > 0]):
             yf_errors = self.check_yfinance_exceptions()
 
         self.execute_function(None, ticker_service.final_update_ticker)
@@ -268,7 +273,10 @@ class TickerUpdater:
             ticker_update_status: The status of the ticker update.
         """
         if ticker_update_status in self.function_map:
-            return self.function_map[ticker_update_status]()
+            result = self.function_map[ticker_update_status]()
+            if isinstance(result, tuple) and len(result) == 2 and type(result[0]) == int:
+                self.results_len.update({ticker_update_status: result[0]})
+            return result
         else:
             LOGGER.error(f"Ticker update status {ticker_update_status} not found in function map.")
             return None, False
