@@ -24,9 +24,48 @@ import logging
 from src.stock.src.RaiseOnErrorHandler import RaiseOnErrorHandler
 from enum import Enum
 
+UPDATE_BALANCE_SHEET_ANNUAL = True
+UPDATE_BALANCE_SHEET_QUARTERLY = True
+UPDATE_CASH_FLOW_ANNUAL = True
+UPDATE_CASH_FLOW_QUARTERLY = True
+UPDATE_CASH_FLOW_TRAILING = True
+UPDATE_FINANCIALS_ANNUAL = True
+UPDATE_FINANCIALS_QUARTERLY = True
+UPDATE_FINANCIALS_TRAILING = True
+UPDATE_ACTIONS = True
+UPDATE_EARNINGS_DATES = True
+UPDATE_EARNINGS_HISTORY = True
+UPDATE_CALENDAR = True
+UPDATE_INSIDER_PURCHASES = True
+UPDATE_INSIDER_ROSTER_HOLDERS = True
+UPDATE_INSIDER_TRANSACTIONS = True
+UPDATE_INSTITUTIONAL_HOLDERS = True
+UPDATE_MAJOR_HOLDERS = True
+UPDATE_MUTUAL_FUND_HOLDERS = True
+UPDATE_RECOMMENDATIONS = True
+UPDATE_UPGRADES_DOWNGRADES = True
+UPDATE_INFO_COMPANY_ADDRESS = True
+UPDATE_SECTOR_INDUSTRY_HISTORY = True
+UPDATE_INFO_TARGET_PRICE_AND_RECOMMENDATION = True
+UPDATE_INFO_GOVERNANCE = True
+UPDATE_INFO_CASH_AND_FINANCIAL_RATIOS = True
+UPDATE_INFO_MARKET_AND_FINANCIAL_METRICS = True
+UPDATE_INFO_GENERAL_STOCK = True
+UPDATE_INFO_TRADING_SESSION = True
+UPDATE_CANDLE_MONTH = True
+UPDATE_CANDLE_WEEK = True
+UPDATE_CANDLE_DAY = True
+UPDATE_CANDLE_HOUR = True
+UPDATE_CANDLE_MINUTE_5 = True
+UPDATE_CANDLE_MINUTE_1 = True
+UPDATE_STOCK_SPLITS = True
+UPDATE_SHARES_FULL = True
+
+DISABLE_YF_CHECK = False
+
 
 class TickerUpdaterStatus(Enum):
-    INFO_GETATTR = "info_getattr"
+    GET_INFO = "info_getattr"
 
     # IS NOT INDEX
     ACTIONS_GETATTR = "actions_getattr"
@@ -37,11 +76,14 @@ class TickerUpdaterStatus(Enum):
     BALANCE_SHEET_QUARTERLY = "balance_sheet_quarterly"
     CASH_FLOW_ANNUAL = "cash_flow_annual"
     CASH_FLOW_QUARTERLY = "cash_flow_quarterly"
+    CASH_FLOW_TRAILING = "cash_flow_trailing"
     FINANCIALS_ANNUAL = "financials_annual"
     FINANCIALS_QUARTERLY = "financials_quarterly"
+    FINANCIALS_TRAILING = "financials_trailing"
 
     ACTIONS = "actions"
     EARNINGS_DATES = "earnings_dates"
+    EARNINGS_HISTORY = "earnings_history"
     CALENDAR = "calendar"
 
     # INFO NOT NONE
@@ -57,7 +99,7 @@ class TickerUpdaterStatus(Enum):
 
     INFO_GENERAL_STOCK = "info_general_stock"
 
-    # NOT INDEX
+    # __ NOT INDEX __
     INSIDER_PURCHASES_GETATTR = "insider_purchases_getattr"
     INSIDER_ROSTER_HOLDERS_GETATTR = "insider_roster_holders_getattr"
     INSIDER_TRANSACTIONS_GETATTR = "insider_transactions_getattr"
@@ -76,6 +118,9 @@ class TickerUpdaterStatus(Enum):
     RECOMMENDATIONS = "recommendations"
     UPGRADES_DOWNGRADES = "upgrades_downgrades"
 
+    STOCK_SPLITS = 'stock_splits'
+    SHARES_FULL = 'shares_full'
+
     # INFO NOT NONE
     FAST_INFO_GETATTR = "fast_info_getattr"
     INFO_TRADING_SESSION = "info_trading_session"
@@ -90,9 +135,10 @@ class TickerUpdaterStatus(Enum):
 
 @dataclass
 class TickerUpdater:
-    def __init__(self, session: sess.Session, symbol: str):
+    def __init__(self, session: sess.Session, symbol: str, has_yf_errors: bool = False):
         self.session = session
         self.symbol = symbol
+        self.has_yf_errors = has_yf_errors
         self.ticker_service = None
         self.function_map = {}
         self.errors = []
@@ -116,7 +162,7 @@ class TickerUpdater:
         self.set_mapping()  # Set the mapping of ticker update statuses to functions
 
         # __ ticker __
-        info, bool_ = self.map_and_execute_function(TickerUpdaterStatus.INFO_GETATTR)
+        info, bool_ = self.map_and_execute_function(TickerUpdaterStatus.GET_INFO)
 
         status = self.errors[-1]["status"] if not bool_ else None
         error = self.errors[-1]["error"] if not bool_ else None
@@ -135,53 +181,73 @@ class TickerUpdater:
             return False
 
         if not self.is_index:
-            self.map_and_execute_function(TickerUpdaterStatus.BALANCE_SHEET_ANNUAL)
-            self.map_and_execute_function(TickerUpdaterStatus.BALANCE_SHEET_QUARTERLY)
-            self.map_and_execute_function(TickerUpdaterStatus.CASH_FLOW_ANNUAL)
-            self.map_and_execute_function(TickerUpdaterStatus.CASH_FLOW_QUARTERLY)
-            self.map_and_execute_function(TickerUpdaterStatus.FINANCIALS_ANNUAL)
-            self.map_and_execute_function(TickerUpdaterStatus.FINANCIALS_QUARTERLY)
-            self.map_and_execute_function(TickerUpdaterStatus.ACTIONS)
-            self.map_and_execute_function(TickerUpdaterStatus.CALENDAR)
-            self.map_and_execute_function(TickerUpdaterStatus.EARNINGS_DATES)
-            self.map_and_execute_function(TickerUpdaterStatus.INSIDER_PURCHASES)
-            self.map_and_execute_function(TickerUpdaterStatus.INSIDER_ROSTER_HOLDERS)
-            self.map_and_execute_function(TickerUpdaterStatus.INSIDER_TRANSACTIONS)
-            self.map_and_execute_function(TickerUpdaterStatus.INSTITUTIONAL_HOLDERS)
-            self.map_and_execute_function(TickerUpdaterStatus.MAJOR_HOLDERS)
-            self.map_and_execute_function(TickerUpdaterStatus.MUTUAL_FUND_HOLDERS)
-            self.map_and_execute_function(TickerUpdaterStatus.RECOMMENDATIONS)
-            self.map_and_execute_function(TickerUpdaterStatus.UPGRADES_DOWNGRADES)
+            self.map_and_execute_function(TickerUpdaterStatus.BALANCE_SHEET_ANNUAL) if UPDATE_BALANCE_SHEET_ANNUAL else None
+            self.map_and_execute_function(TickerUpdaterStatus.BALANCE_SHEET_QUARTERLY) if UPDATE_BALANCE_SHEET_QUARTERLY else None
+            self.map_and_execute_function(TickerUpdaterStatus.CASH_FLOW_ANNUAL) if UPDATE_CASH_FLOW_ANNUAL else None
+            self.map_and_execute_function(TickerUpdaterStatus.CASH_FLOW_QUARTERLY) if UPDATE_CASH_FLOW_QUARTERLY else None
+            self.map_and_execute_function(TickerUpdaterStatus.CASH_FLOW_TRAILING) if UPDATE_CASH_FLOW_TRAILING else None
+            self.map_and_execute_function(TickerUpdaterStatus.FINANCIALS_ANNUAL) if UPDATE_FINANCIALS_ANNUAL else None
+            self.map_and_execute_function(TickerUpdaterStatus.FINANCIALS_QUARTERLY) if UPDATE_FINANCIALS_QUARTERLY else None
+            self.map_and_execute_function(TickerUpdaterStatus.FINANCIALS_TRAILING) if UPDATE_FINANCIALS_TRAILING else None
+            self.map_and_execute_function(TickerUpdaterStatus.ACTIONS) if UPDATE_ACTIONS else None
+            self.map_and_execute_function(TickerUpdaterStatus.CALENDAR) if UPDATE_CALENDAR else None
+            self.map_and_execute_function(TickerUpdaterStatus.EARNINGS_DATES) if UPDATE_EARNINGS_DATES else None
+            self.map_and_execute_function(TickerUpdaterStatus.EARNINGS_HISTORY) if UPDATE_EARNINGS_HISTORY else None
+            self.map_and_execute_function(TickerUpdaterStatus.INSIDER_PURCHASES) if UPDATE_INSIDER_PURCHASES else None
+            self.map_and_execute_function(TickerUpdaterStatus.INSIDER_ROSTER_HOLDERS) if UPDATE_INSIDER_ROSTER_HOLDERS else None
+            self.map_and_execute_function(TickerUpdaterStatus.INSIDER_TRANSACTIONS) if UPDATE_INSIDER_TRANSACTIONS else None
+            self.map_and_execute_function(TickerUpdaterStatus.INSTITUTIONAL_HOLDERS) if UPDATE_INSTITUTIONAL_HOLDERS else None
+            self.map_and_execute_function(TickerUpdaterStatus.MAJOR_HOLDERS) if UPDATE_MAJOR_HOLDERS else None
+            self.map_and_execute_function(TickerUpdaterStatus.MUTUAL_FUND_HOLDERS) if UPDATE_MUTUAL_FUND_HOLDERS else None
+            self.map_and_execute_function(TickerUpdaterStatus.RECOMMENDATIONS) if UPDATE_RECOMMENDATIONS else None
+            self.map_and_execute_function(TickerUpdaterStatus.UPGRADES_DOWNGRADES) if UPDATE_UPGRADES_DOWNGRADES else None
+            self.map_and_execute_function(TickerUpdaterStatus.STOCK_SPLITS) if UPDATE_STOCK_SPLITS else None
+            self.map_and_execute_function(TickerUpdaterStatus.SHARES_FULL) if UPDATE_SHARES_FULL else None
 
         if info is not None:
-            self.map_and_execute_function(TickerUpdaterStatus.INFO_COMPANY_ADDRESS)
-            self.map_and_execute_function(TickerUpdaterStatus.INFO_TARGET_PRICE_AND_RECOMMENDATION)
-            self.map_and_execute_function(TickerUpdaterStatus.INFO_GOVERNANCE)
-            self.map_and_execute_function(TickerUpdaterStatus.INFO_CASH_AND_FINANCIAL_RATIOS)
-            self.map_and_execute_function(TickerUpdaterStatus.INFO_MARKET_AND_FINANCIAL_METRICS)
-            self.map_and_execute_function(TickerUpdaterStatus.INFO_GENERAL_STOCK)
-            self.map_and_execute_function(TickerUpdaterStatus.INFO_TRADING_SESSION)
+            self.map_and_execute_function(TickerUpdaterStatus.INFO_COMPANY_ADDRESS) if UPDATE_INFO_COMPANY_ADDRESS else None
+            self.map_and_execute_function(TickerUpdaterStatus.INFO_TARGET_PRICE_AND_RECOMMENDATION) if UPDATE_INFO_TARGET_PRICE_AND_RECOMMENDATION else None
+            self.map_and_execute_function(TickerUpdaterStatus.INFO_GOVERNANCE) if UPDATE_INFO_GOVERNANCE else None
+            self.map_and_execute_function(TickerUpdaterStatus.INFO_CASH_AND_FINANCIAL_RATIOS) if UPDATE_INFO_CASH_AND_FINANCIAL_RATIOS else None
+            self.map_and_execute_function(TickerUpdaterStatus.INFO_MARKET_AND_FINANCIAL_METRICS) if UPDATE_INFO_MARKET_AND_FINANCIAL_METRICS else None
+            self.map_and_execute_function(TickerUpdaterStatus.INFO_GENERAL_STOCK) if UPDATE_INFO_GENERAL_STOCK else None
+            self.map_and_execute_function(TickerUpdaterStatus.INFO_TRADING_SESSION) if UPDATE_INFO_TRADING_SESSION else None
             if not self.is_index:
-                self.map_and_execute_function(TickerUpdaterStatus.SECTOR_INDUSTRY_HISTORY)
+                self.map_and_execute_function(TickerUpdaterStatus.SECTOR_INDUSTRY_HISTORY) if UPDATE_SECTOR_INDUSTRY_HISTORY else None
 
         before_candle_time = time()
 
         # __ handle candle data update/insert __
-        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MONTH)
-        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_WEEK)
-        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_DAY)
-        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_HOUR)
-        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MINUTE_5)
-        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MINUTE_1)
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MONTH) if UPDATE_CANDLE_MONTH else None
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_WEEK) if UPDATE_CANDLE_WEEK else None
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_DAY) if UPDATE_CANDLE_DAY else None
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_HOUR) if UPDATE_CANDLE_HOUR else None
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MINUTE_5) if UPDATE_CANDLE_MINUTE_5 else None
+        self.map_and_execute_function(TickerUpdaterStatus.CANDLE_MINUTE_1) if UPDATE_CANDLE_MINUTE_1 else None
 
         # intervals = list(CandleDataInterval)
         # for interval in intervals:
         #     self.execute_function(None, ticker_service.handle_candle_data, interval=interval)
 
-        if not any([x for x in self.results_len if type(self.results_len[x]) == int and len(self.results_len) > 0]):
-            yf_errors = self.check_yfinance_exceptions()
+        if not DISABLE_YF_CHECK:
+            if not any([x for x in self.results_len if type(self.results_len[x]) == int and len(self.results_len) > 0]):
+                yf_errors = self.check_yfinance_exceptions()
 
-        self.execute_function(None, ticker_service.final_update_ticker)
+            # if ticker was updated successfully, remove valid from existing yfinance errors
+            if self.has_yf_errors:
+                # update table ticker_status set valid = false where ticker_id = :ticker_id and valid = true
+                self.session.execute(  #TODO: add SET valid_from = timestamp
+                    text("""UPDATE ticker_status
+                            SET valid = false
+                            WHERE ticker_id = (
+                                SELECT id FROM ticker WHERE symbol = :symbol)
+                            AND valid = true"""
+                         ).bindparams(symbol=self.symbol)
+                )
+                self.session.commit()
+                LOGGER.info(f"{self.symbol} - Removed valid flag from existing yfinance errors")
+
+            self.execute_function(None, ticker_service.final_update_ticker)
 
         # __ stop tracking the elapsed time and print the difference __
         end_time = time()
@@ -233,15 +299,18 @@ class TickerUpdater:
         self.execute_function(None, ticker_service.final_update_ticker)
         """
         self.function_map = {
-            TickerUpdaterStatus.INFO_GETATTR: partial(self.execute_function, None, getattr, self.ticker_service.stock, "info"),
-            TickerUpdaterStatus.BALANCE_SHEET_ANNUAL: partial(self.execute_function, None, self.ticker_service.handle_balance_sheet, period_type="annual"),
+            TickerUpdaterStatus.GET_INFO: partial(self.execute_function, None, self.ticker_service.stock.get_info),
+            TickerUpdaterStatus.BALANCE_SHEET_ANNUAL: partial(self.execute_function, None, self.ticker_service.handle_balance_sheet, period_type="yearly"),
             TickerUpdaterStatus.BALANCE_SHEET_QUARTERLY: partial(self.execute_function, None, self.ticker_service.handle_balance_sheet, period_type="quarterly"),
-            TickerUpdaterStatus.CASH_FLOW_ANNUAL: partial(self.execute_function, None, self.ticker_service.handle_cash_flow, period_type="annual"),
+            TickerUpdaterStatus.CASH_FLOW_ANNUAL: partial(self.execute_function, None, self.ticker_service.handle_cash_flow, period_type="yearly"),
             TickerUpdaterStatus.CASH_FLOW_QUARTERLY: partial(self.execute_function, None, self.ticker_service.handle_cash_flow, period_type="quarterly"),
-            TickerUpdaterStatus.FINANCIALS_ANNUAL: partial(self.execute_function, None, self.ticker_service.handle_financials, period_type="annual"),
+            TickerUpdaterStatus.CASH_FLOW_TRAILING: partial(self.execute_function, None, self.ticker_service.handle_cash_flow, period_type="trailing"),
+            TickerUpdaterStatus.FINANCIALS_ANNUAL: partial(self.execute_function, None, self.ticker_service.handle_financials, period_type="yearly"),
             TickerUpdaterStatus.FINANCIALS_QUARTERLY: partial(self.execute_function, None, self.ticker_service.handle_financials, period_type="quarterly"),
+            TickerUpdaterStatus.FINANCIALS_TRAILING: partial(self.execute_function, None, self.ticker_service.handle_financials, period_type="trailing"),
             TickerUpdaterStatus.ACTIONS: partial(self.execute_function, None, self.ticker_service.handle_actions),
             TickerUpdaterStatus.EARNINGS_DATES: partial(self.execute_function, None, self.ticker_service.handle_earnings_dates),
+            TickerUpdaterStatus.EARNINGS_HISTORY: partial(self.execute_function, None, self.ticker_service.handle_earnings_history),
             TickerUpdaterStatus.CALENDAR: partial(self.execute_function, None, self.ticker_service.handle_calendar),
             TickerUpdaterStatus.INSIDER_PURCHASES: partial(self.execute_function, None, self.ticker_service.handle_insider_purchases),
             TickerUpdaterStatus.INSIDER_ROSTER_HOLDERS: partial(self.execute_function, None, self.ticker_service.handle_insider_roster_holders),
@@ -265,6 +334,8 @@ class TickerUpdater:
             TickerUpdaterStatus.CANDLE_HOUR: partial(self.execute_function, None, self.ticker_service.handle_candle_data, interval=CandleDataInterval.HOUR),
             TickerUpdaterStatus.CANDLE_MINUTE_5: partial(self.execute_function, None, self.ticker_service.handle_candle_data, interval=CandleDataInterval.MINUTE_5),
             TickerUpdaterStatus.CANDLE_MINUTE_1: partial(self.execute_function, None, self.ticker_service.handle_candle_data, interval=CandleDataInterval.MINUTE_1),
+            TickerUpdaterStatus.STOCK_SPLITS: partial(self.execute_function, None, self.ticker_service.handle_stock_splits),
+            TickerUpdaterStatus.SHARES_FULL: partial(self.execute_function, None, self.ticker_service.handle_shares_full),
         }
 
     def map_and_execute_function(self, ticker_update_status: TickerUpdaterStatus) -> (Optional[pd.DataFrame], bool):

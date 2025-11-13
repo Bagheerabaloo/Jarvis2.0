@@ -28,6 +28,9 @@ class FirefoxDriver(WebDriver):
         if selenium_profile and not self.os_environ:
             profile_path = r'C:\Users\Vale\AppData\Roaming\Mozilla\Firefox\Profiles\bym01i3w.SeleniumFF'
             self.options.profile = profile_path
+            if headless or self.os_environ:
+                self.options.headless = True
+                self.options.add_argument("-headless")
             # self.options.set_preference("intl.accept_languages", "it-IT, it, en-US, en")
 
         if not self.os_environ:

@@ -110,8 +110,11 @@ def build_geocode_query(location_text: Optional[str],
 @dataclass
 class GeoCfg:
     user_agent: str = "autoscout-distance-bot"
-    min_delay_seconds: float = 1.0     # Nominatim fair use
+    min_delay_seconds: float = 1.2     # Nominatim fair use
     swallow_exceptions: bool = True
+    timeout: int = 10               # per-request timeout in seconds
+    error_wait_seconds: float = 2.5     # wait between retries on errors
+    country_codes: str = "it"           # restrict to Italy to speed up and reduce ambiguity
 
 
 class GeoService:
@@ -120,12 +123,28 @@ class GeoService:
     """
     def __init__(self, cfg: GeoCfg | None = None):
         self.cfg = cfg or GeoCfg()
-        self._geocoder = Nominatim(user_agent=self.cfg.user_agent)
-        # Respect rate limits and retry a bit
-        self._geocode_rl = RateLimiter(self._geocoder.geocode,
-                                       min_delay_seconds=self.cfg.min_delay_seconds,
-                                       swallow_exceptions=self.cfg.swallow_exceptions,
-                                       max_retries=2)
+        self._geocoder = Nominatim(
+            user_agent=self.cfg.user_agent,
+            timeout=self.cfg.timeout
+        )
+
+        # Pre-bind country/fields to reduce work and latency
+        def _geo_call(q: str):
+            return self._geocoder.geocode(
+                q,
+                country_codes=self.cfg.country_codes,  # narrow search to Italy
+                addressdetails=False,
+                limit=1
+            )
+
+        # Respect fair use and back off on transient errors
+        self._geocode_rl = RateLimiter(
+            _geo_call,
+            min_delay_seconds=self.cfg.min_delay_seconds,
+            swallow_exceptions=self.cfg.swallow_exceptions,
+            max_retries=3,
+            error_wait_seconds=self.cfg.error_wait_seconds,
+        )
 
     def geocode_with_cache(self, session: Session, query: str) -> Optional[Tuple[float, float]]:
         """

@@ -48,6 +48,13 @@ class ListingSummary(Base):
     change_count:  Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active:     Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # Availability flags (kept at summary level so we can prune “gone” ads quickly)
+    is_available: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    last_availability_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    unavailable_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # detail: Mapped["ListingDetail"] = relationship(back_populates="summary", uselist=False, cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -137,6 +144,9 @@ class ListingDetail(Base):
     # bookkeeping
     source_hash:          Mapped[Optional[str]] = mapped_column(String(64))
     last_scraped_at:      Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    # --- KPIs ---
+    kpi_light: Mapped[Optional[float]] = mapped_column(Float)  # 0..1 convenience score
 
     __table_args__ = (Index("idx_detail_seller_type", "seller_type"),)
 

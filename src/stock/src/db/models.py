@@ -40,6 +40,15 @@ class Ticker(Base):
     recommendations = relationship("Recommendations", back_populates="ticker", cascade="all, delete-orphan")
     upgrades_downgrades = relationship("UpgradesDowngrades", back_populates="ticker", cascade="all, delete-orphan")
 
+    earnings_history = relationship("EarningsHistory", back_populates="ticker", cascade="all, delete-orphan") # EPS per accounting quarter
+    stock_splits = relationship("StockSplits", back_populates="ticker", cascade="all, delete-orphan")
+    shares_full = relationship(
+        "SharesFull",
+        back_populates="ticker",
+        cascade="save-update, merge",   # DB will handle parent delete via ON DELETE CASCADE
+        passive_deletes=True,
+        lazy="selectin",
+    )
     # __ relationships with the candle data tables __
     candle_data_day = relationship("CandleDataDay", back_populates="ticker", cascade="all, delete-orphan")
     candle_data_week = relationship("CandleDataWeek", back_populates="ticker", cascade="all, delete-orphan")
@@ -60,6 +69,7 @@ class TickerStatus(Base):
 
     status = Column(String(20), nullable=False)  # Status of the ticker (e.g., "active", "inactive", "delisted")
     yfinance_error = Column(String(200), nullable=False)
+    valid = Column(Boolean, default=True)  # Flag indicating if the yf_error is valid
 
     # Relationship to access the parent Ticker object
     ticker = relationship("Ticker", back_populates="ticker_status")
@@ -1243,23 +1253,24 @@ class CandleAnalysisTrendMethod1Day(Base):
 class SP500Changes(Base):
     __tablename__ = 'sp_500_changes'
 
-    # Unique identifier for each candle
     date = Column(Date, primary_key=True, nullable=False)
+    ticker_id = Column(Integer, ForeignKey("ticker.id"), primary_key=True, nullable=False)
+    # keep legacy text for display/audit if you want
+    ticker = Column(String(10), nullable=False)          # legacy text (not part of PK)
+    symbol_at_event = Column(String(10), nullable=True)
 
-    # Foreign key to the ticker table, indexed for fast queries
-    ticker = Column(String(10), primary_key=True, nullable=False)  # Ticker symbol (e.g., AAPL)
-
-    # Details of the action
-    add = Column(Boolean, nullable=False)          # Indicator if the row is a ticker added on that date
-    remove = Column(Boolean, nullable=False)       # Indicator if the row is a ticker removed on that date
-
-    # Timestamp to track when the data was recorded
+    add = Column(Boolean, nullable=False)
+    remove = Column(Boolean, nullable=False)
     last_update = Column(DateTime, nullable=True)
 
     # Define unique constraint and indexes to improve query performance
     __table_args__ = (
-        UniqueConstraint('ticker', 'date', name='uix_sp_500_changes_ticker_date'),
-        Index('ix_sp_500_changes_ticker_date', 'ticker', 'date'),  # Combined index on ticker_id and date
+        # Kept from Phase 1: redundant with PK but preserve if it still exists in DB
+        UniqueConstraint("ticker_id", "date", name="uix_sp_500_changes_tid_date"),
+        # Useful access patterns: lookups by ticker_id, then by date range
+        Index("ix_sp_500_changes_ticker_id_date", "ticker_id", "date"),
+        # Legacy convenience for text-based queries still in code
+        Index("ix_sp_500_changes_ticker_date", "ticker", "date"),
     )
 
     def __repr__(self):
@@ -1269,13 +1280,112 @@ class SP500Changes(Base):
 class SP500Historical(Base):
     __tablename__ = 'sp_500_historical'
 
-    # Primary key is a composite of date and ticker
     date = Column(Date, primary_key=True, nullable=False)
-    ticker = Column(String(10), primary_key=True, nullable=False)
-    ticker_yfinance = Column(String(10), nullable=True)  # Ticker symbol used by Yahoo Finance - foreign key on ticker.symbol
-
-    # Timestamp to track when the data was recorded
+    ticker_id = Column(Integer, ForeignKey("ticker.id"), primary_key=True, nullable=False)
+    # keep legacy text for display/audit if you want
+    ticker = Column(String(10), nullable=False)          # legacy text (not part of PK)
+    symbol_at_date = Column(String(10), nullable=True)
+    ticker_yfinance = Column(String(10), nullable=True)
     last_update = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        # Kept from Phase 1: redundant with PK but preserve if it still exists in DB
+        UniqueConstraint("ticker_id", "date", name="uix_sp_500_historical_tid_date"),
+        # Useful access patterns: lookups by ticker_id, then by date range
+        Index("ix_sp_500_historical_ticker_id_date", "ticker_id", "date"),
+        # Legacy convenience for text-based queries still in code
+        Index("ix_sp_500_historical_ticker_date", "ticker", "date"),
+    )
 
     def __repr__(self):
         return f"<SP500Historical(date={self.date}, ticker={self.ticker})>"
+
+
+class EarningsHistory(Base):
+    __tablename__ = 'earnings_history'
+
+    # --- Keys ---
+    quarter_date = Column(Date, primary_key=True)           # Quarter-end date, e.g., 2025-09-30
+    last_update  = Column(DateTime, primary_key=True)       # ETL snapshot timestamp
+    ticker_id    = Column(Integer, ForeignKey('ticker.id'), nullable=False, index=True, primary_key=True)
+
+    # --- Values (matching yfinance get_earnings_history) ---
+    eps_actual        = Column(Numeric, nullable=True)      # yfinance: epsActual
+    eps_estimate      = Column(Numeric, nullable=True)      # yfinance: epsEstimate
+    eps_difference    = Column(Numeric, nullable=True)      # yfinance: epsDifference
+    surprise_percent  = Column(Numeric, nullable=True)      # yfinance: surprisePercent
+
+    # --- Relationships ---
+    ticker = relationship("Ticker", back_populates="earnings_history")
+
+    # Helpful composite index for common lookups
+    __table_args__ = (
+        Index('ix_earnings_history_ticker_quarter', 'ticker_id', 'quarter_date'),
+    )
+
+    def __repr__(self):
+        return (f"<EarningsHistory(ticker_id={self.ticker_id}, quarter_date={self.quarter_date}, "
+                f"eps_actual={self.eps_actual}, eps_estimate={self.eps_estimate})>")
+
+
+class SlvEarningsHistory(Base):
+    __tablename__ = 'slv_earnings_history'
+
+    # --- Keys ---
+    ticker_id    = Column(Integer, ForeignKey('ticker.id'), primary_key=True, index=True, nullable=False)
+    quarter_date = Column(Date, primary_key=True, nullable=False)
+    last_update  = Column(DateTime, nullable=False)
+
+    # --- Values ---
+    quarter           = Column(String(20), nullable=True)   # es. 'Q4'
+    year              = Column(Integer, nullable=True)      # es. 2023
+    eps_actual        = Column(Numeric, nullable=True)
+    eps_estimate      = Column(Numeric, nullable=True)
+    eps_difference    = Column(Numeric, nullable=True)
+    surprise_percent  = Column(Numeric, nullable=True)
+
+    __table_args__ = (
+        # Indice utile per le query di lookup per data
+        Index('ix_slv_earn_hist_ticker_quarterdate', 'ticker_id', 'quarter_date'),
+        # Se ti serve spesso filtrare per (ticker, year, quarter) tieni anche questo:
+        Index('ix_slv_earn_hist_ticker_year_quarter', 'ticker_id', 'year', 'quarter'),
+    )
+
+    def __repr__(self):
+        return (f"<SlvEarningsHistory(ticker_id={self.ticker_id}, quarter_date={self.quarter_date}, "
+                f"eps_actual={self.eps_actual}, eps_estimate={self.eps_estimate})>")
+
+
+class StockSplits(Base):
+    __tablename__ = "stock_splits"
+
+    ticker_id  = Column(Integer, ForeignKey("ticker.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    date       = Column(Date, primary_key=True, nullable=False)
+    factor     = Column(Numeric(12, 6), nullable=False)
+    last_update = Column(DateTime, nullable=True)
+
+    # ORM backref to Ticker
+    ticker = relationship("Ticker", back_populates="stock_splits")
+
+    __table_args__ = (
+        Index("ix_stock_splits_ticker_id_date", "ticker_id", "date"),
+    )
+
+class SharesFull(Base):
+    __tablename__ = "shares_full"
+
+    # One row per ticker per date
+    ticker_id   = Column(Integer, ForeignKey("ticker.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    date        = Column(Date, primary_key=True, nullable=False)
+    shares      = Column(BigInteger, nullable=False)   # number of shares outstanding (integer)
+    last_update = Column(DateTime, nullable=True)
+
+    # ORM backref
+    ticker = relationship("Ticker", back_populates="shares_full")
+
+    __table_args__ = (
+        Index("ix_shares_full_ticker_id_date", "ticker_id", "date"),
+    )
+
+    def __repr__(self):
+        return f"<SharesFull(ticker_id={self.ticker_id}, date={self.date}, shares={self.shares})>"

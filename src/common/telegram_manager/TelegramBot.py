@@ -1,7 +1,14 @@
 import asyncio
-import telegram
 from dataclasses import dataclass, field
 from time import sleep
+import random
+# Limit concurrent HTTP calls to avoid pool exhaustion
+import asyncio
+import httpx
+
+import telegram
+from telegram.error import RetryAfter, TimedOut, NetworkError
+from telegram.request import HTTPXRequest
 
 from src.common.telegram_manager.TelegramUser import TelegramUser
 from src.common.telegram_manager.TelegramChat import TelegramChat
@@ -16,23 +23,76 @@ class TelegramBot:
     token: str
     pending_messages: list = field(default_factory=lambda: [])
     bot: telegram.Bot = field(init=False)
+    _sema: asyncio.Semaphore = field(init=False, repr=False)
 
     def __post_init__(self):
-        self.bot = telegram.Bot(token=self.token)  # init telegram bot
+        # Limit parallel API calls to avoid exhausting the HTTP pool
+        self._sema = asyncio.Semaphore(5)  # tune 3–10 based on your use case
 
-    # __ Async methods __
+        # Try the most modern constructor first (PTB ≥ 21.6) with httpx_kwargs.
+        try:
+            import httpx
+            from telegram.request import HTTPXRequest
+
+            limits = httpx.Limits(
+                max_connections=50,  # total sockets across hosts
+                max_keepalive_connections=20,  # idle keep-alive pool
+            )
+            timeouts = httpx.Timeout(
+                connect=10.0, read=240.0, write=60.0, pool=30.0  # pool=wait for a free connection
+            )
+
+            request = HTTPXRequest(
+                connection_pool_size=50,  # still useful on some PTB builds
+                pool_timeout=30.0,
+                read_timeout=240.0,
+                write_timeout=60.0,
+                connect_timeout=10.0,
+                http_version="1.1",
+                httpx_kwargs={
+                    "limits": limits,
+                    "timeout": timeouts,
+                    "http2": False,
+                },
+            )
+            self.bot = telegram.Bot(token=self.token, request=request)
+
+        # If httpx_kwargs isn't supported (older PTB), fall back to native args only.
+        except TypeError:
+            request = HTTPXRequest(
+                connection_pool_size=50,
+                pool_timeout=30.0,
+                read_timeout=240.0,
+                write_timeout=60.0,
+                connect_timeout=10.0,
+                http_version="1.1",
+            )
+            self.bot = telegram.Bot(token=self.token, request=request)
+
+        # Last resort – no HTTPXRequest tuning available; use default request.
+        except Exception:
+            self.bot = telegram.Bot(token=self.token)
+
+    # __ Async primitives __
     async def __send_message(self, chat_id, text, parse_mode=None, reply_mark_up=None, silent=True):
-        return await self.bot.send_message(chat_id=chat_id,
-                                           text=text,
-                                           parse_mode=parse_mode,
-                                           reply_markup=reply_mark_up,
-                                           disable_notification=silent)
+        return await self.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=reply_mark_up,
+            disable_notification=silent)
 
     async def __send_callback(self, callback_id, text):
         return await self.bot.answer_callback_query(callback_query_id=callback_id, text=text)
 
     async def __send_photo(self, chat_id, photo, caption=None, parse_mode=None, reply_mark_up=None, silent=True):
-        return await self.bot.send_photo(chat_id=chat_id, photo=photo, caption=caption, parse_mode=parse_mode, reply_markup=reply_mark_up, disable_notification=silent)
+        return await self.bot.send_photo(
+            chat_id=chat_id,
+            photo=photo,
+            caption=caption,
+            parse_mode=parse_mode,
+            reply_markup=reply_mark_up,
+            disable_notification=silent)
 
     async def __send_document(self, chat_id, document):
         return await self.bot.send_document(chat_id=chat_id, document=document)
@@ -101,6 +161,30 @@ class TelegramBot:
     async def get_updates(self, offset: int):
         return await self.bot.get_updates(offset=offset)
 
+    # __ Robust retry wrapper __
+    # Generic retry helper for Telegram API calls with exponential backoff and 429 handling
+    async def _with_retries(self, coro_factory, max_tries: int = 7):
+        attempt = 0
+        backoff = 1.2
+        while True:
+            try:
+                return await coro_factory()
+            except RetryAfter as e:
+                # Respect Telegram's rate limit
+                delay = int(getattr(e, "retry_after", 5)) + 1
+                await asyncio.sleep(delay)
+            except (TimedOut, NetworkError) as e:
+                attempt += 1
+                if attempt >= max_tries:
+                    raise
+                # jittered backoff
+                delay = backoff * (1 + random.random())
+                await asyncio.sleep(delay)
+                backoff *= 1.7
+            except telegram.error.Forbidden:
+                # Non-retryable: user blocked the bot or similar
+                raise
+
     # __ Public send methods __
     async def send_message(self, chat_id, text, parse_mode=None, reply_keyboard=None, remove_keyboard=False, inline_keyboard=None, silent=True, pending=False):
         if len(text) == 0:
@@ -116,124 +200,129 @@ class TelegramBot:
             text = self.__build_pending_message(chat_id=chat_id, message=text)
 
         if len(text) > 4096:
-            return self.split_and_send_message(text=text, chat_id=chat_id, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent)
+            # from io import BytesIO
+            # buf = BytesIO(text.encode("utf-8"))
+            # buf.name = "riepilogo_autoscout24.txt"
+            # await self.send_document(chat_id, buf)
 
-        num_of_tries = 0  # TODO: replace this section with pending messages
-        max_tries = 10
-        response = None
-        while not response and num_of_tries < max_tries:
-            try:
-                response = await self.__send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent)
-            except telegram.error.Forbidden:
-                num_of_tries = max_tries
-                continue
-            except:
-                sleep(1)
-                num_of_tries += 1
-                print(f"Timeout error - trying to send message again - chat_id: {chat_id}")
-                continue
-        return response
+            return await self.split_and_send_message(
+                text=text,
+                chat_id=chat_id,
+                parse_mode=None,  # <— forza plain text per i chunk
+                reply_mark_up=reply_mark_up,
+                silent=silent
+            )
 
-    def split_and_send_message(self, text, chat_id, parse_mode, reply_mark_up, silent):
-        message_ids = []
-        for i in range(len(text) // 4096 + 1):
-            partial = text[4096 * i:min(len(text), 4096 * (i + 1))]
-            message_ids.append(self.__send_message(chat_id=chat_id, text=partial, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent))
+        async with self._sema:
+            return await self._with_retries(lambda: self.__send_message(
+                chat_id=chat_id, text=text, parse_mode=parse_mode,
+                reply_mark_up=reply_mark_up, silent=silent
+            ))
 
-        return message_ids
+    async def split_and_send_message(self, text, chat_id, parse_mode, reply_mark_up, silent):
+        # Split on safe boundaries (newline > space) to avoid cutting words/entities
+        parts = []
+        start = 0
+        MAX = 4096
+        while start < len(text):
+            end = min(len(text), start + MAX)
 
-    def send_pending_message(self, last_chat_id, silent=True):
-        if len(self.pending_messages) == 0 or not any(x for x in self.pending_messages if x['chat_id'] == last_chat_id):
+            # try to cut at newline first, then at space; otherwise hard cut
+            cut = text.rfind("\n", start, end)
+            if cut == -1:
+                cut = text.rfind(" ", start, end)
+            if cut == -1 or cut <= start:
+                cut = end
+
+            parts.append(text[start:cut])
+            start = cut
+
+        # Send sequentially to preserve order and reduce peak concurrency
+        results = []
+        for chunk in parts:
+            res = await self._with_retries(lambda: self.__send_message(
+                chat_id=chat_id,
+                text=chunk,
+                parse_mode=parse_mode,  # None for chunks → no Markdown parsing errors
+                reply_mark_up=reply_mark_up,
+                silent=silent
+            ))
+            results.append(res)
+        return results
+
+    async def send_pending_message(self, last_chat_id, silent=True):
+        if not self.pending_messages or not any(x for x in self.pending_messages if x['chat_id'] == last_chat_id):
             return None
-
         text = self.__build_pending_message(chat_id=last_chat_id, message='')
-        return self.__send_message(chat_id=last_chat_id, text=text, silent=silent)
 
-    def send_callback(self, callback_id, text=None):
-        return self.__send_callback(callback_id=callback_id, text=text)
+        async with self._sema:
+            return await self._with_retries(lambda: self.__send_message(
+                chat_id=last_chat_id, text=text, silent=silent
+            ))
 
-    def send_photo(self, chat_id, photo, caption=None, parse_mode=None, reply_keyboard=None, remove_keyboard=False, inline_keyboard=None, silent=True, pending=False):
+    async def send_callback(self, callback_id, text=None):
+        async with self._sema:
+            return await self._with_retries(lambda: self.__send_callback(callback_id=callback_id, text=text))
+
+    async def send_photo(self, chat_id, photo, caption=None, parse_mode=None, reply_keyboard=None, remove_keyboard=False, inline_keyboard=None, silent=True):
         reply_mark_up = self.__build_keyboard(remove_keyboard=remove_keyboard, reply_keyboard=reply_keyboard, inline_keyboard=inline_keyboard)
-        return self.__send_photo(chat_id=chat_id, photo=photo, caption=caption, parse_mode=parse_mode, reply_mark_up=reply_mark_up, silent=silent)
+        async with self._sema:
+            return await self._with_retries(lambda: self.__send_photo(
+                chat_id=chat_id,
+                photo=photo,
+                caption=caption,
+                parse_mode=parse_mode,
+                reply_mark_up=reply_mark_up,
+                silent=silent))
 
-    def send_document(self, chat_id, document):
-        return self.__send_document(chat_id=chat_id, document=document)
-
-    async def send_photo_async(self, chat_id, photo, caption=None,
-                               parse_mode=None, reply_keyboard=None,
-                               remove_keyboard=False, inline_keyboard=None,
-                               silent=True):
-        """Send a photo (with optional caption) using the same retry policy as send_message."""
-        reply_mark_up = self.__build_keyboard(remove_keyboard=remove_keyboard,
-                                              reply_keyboard=reply_keyboard,
-                                              inline_keyboard=inline_keyboard)
-
-        num_of_tries = 0
-        max_tries = 10
-        response = None
-        while not response and num_of_tries < max_tries:
-            try:
-                response = await self.__send_photo(
-                    chat_id=chat_id,
-                    photo=photo,
-                    caption=caption,
-                    parse_mode=parse_mode,
-                    reply_mark_up=reply_mark_up,
-                    silent=silent,
-                )
-            except telegram.error.Forbidden:
-                num_of_tries = max_tries
-                continue
-            except Exception as e:
-                sleep(1)
-                num_of_tries += 1
-                print(e)
-                print(f"Timeout error - trying to send photo again - chat_id: {chat_id}")
-                continue
-        return response
+    async def send_document(self, chat_id, document):
+        async with self._sema:
+            return await self._with_retries(lambda: self.__send_document(chat_id=chat_id, document=document))
 
     # __ Public edit methods __
-    def edit_inline_keyboard(self, reply_markup, chat_id=None, message_id=None, inline_message_id=None):
+    async def edit_inline_keyboard(self, reply_markup, chat_id=None, message_id=None, inline_message_id=None):
         reply_markup = self.__build_keyboard(inline_keyboard=reply_markup) if reply_markup else None
-        return self.__edit_message_reply_markup(reply_markup=reply_markup, chat_id=chat_id, message_id=message_id, inline_message_id=inline_message_id)
+        async with self._sema:
+            return await self._with_retries(lambda: self.__edit_message_reply_markup(reply_markup=reply_markup, chat_id=chat_id, message_id=message_id, inline_message_id=inline_message_id))
 
     async def edit_message(self, text, reply_markup=None, chat_id=None, message_id=None, inline_message_id=None, pending=False, parse_mode=None):
-        if len(text) == 0:
+        if not text:
             return None
-
         if pending:
             self.pending_messages.append({'chat_id': chat_id, 'text': text})
             return None
-
-        if len(self.pending_messages) > 0 and any(x for x in self.pending_messages if x['chat_id'] == chat_id):
+        if self.pending_messages and any(x for x in self.pending_messages if x['chat_id'] == chat_id):
             text = self.__build_pending_message(chat_id=chat_id, message=text)
-
         reply_markup = self.__build_keyboard(inline_keyboard=reply_markup) if reply_markup else None
-
         if len(text) > 4096:
-            return self.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+            return await self.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
 
-        return await self.__edit_message_text(text=text, reply_markup=reply_markup, chat_id=chat_id, message_id=message_id, inline_message_id=inline_message_id, parse_mode=parse_mode)
+        async with self._sema:
+            return await self._with_retries(lambda: self.__edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                chat_id=chat_id,
+                message_id=message_id,
+                inline_message_id=inline_message_id,
+                parse_mode=parse_mode))
 
-    def edit_photo(self, photo=None, caption=None, reply_markup=None, chat_id=None, message_id=None, inline_message_id=None, parse_mode=None):
+    async def edit_photo(self, photo=None, caption=None, reply_markup=None, chat_id=None, message_id=None, inline_message_id=None, parse_mode=None):
         if not photo and not caption:
             return None
-
         response = None
         reply_markup = self.__build_keyboard(inline_keyboard=reply_markup) if reply_markup else None
-
         if photo:
             media = telegram.InputMediaPhoto(media=photo)
-            response = self.__edit_message_media(chat_id=chat_id, message_id=message_id, inline_message_id=inline_message_id, media=media, reply_markup=reply_markup)
-            message_id = response['message_id']
+            response = await self._with_retries(lambda: self.__edit_message_media(chat_id=chat_id, message_id=message_id, inline_message_id=inline_message_id, media=media, reply_mark_up=reply_markup))
+            # response is a Message; keep message_id for next call if needed
+            message_id = getattr(response, "message_id", message_id)
         if caption:
-            response = self.__edit_message_caption(caption=caption, reply_markup=reply_markup, chat_id=chat_id, message_id=message_id, inline_message_id=inline_message_id, parse_mode=parse_mode)
-
+            response = await self._with_retries(lambda: self.__edit_message_caption(chat_id=chat_id, caption=caption, message_id=message_id, inline_message_id=inline_message_id, reply_markup=reply_markup, parse_mode=parse_mode))
         return response
 
-    # __ Public delete methods __
-    def delete_message(self, chat_id, message_id):
-        return self.__delete_message(chat_id=chat_id, message_id=message_id)
+    async def delete_message(self, chat_id, message_id):
+        async with self._sema:
+            return await self._with_retries(lambda: self.__delete_message(chat_id=chat_id, message_id=message_id))
 
 
 if __name__ == '__main__':

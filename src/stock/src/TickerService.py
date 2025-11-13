@@ -5,16 +5,13 @@ from datetime import date
 from typing import Optional
 from datetime import datetime, date
 from dataclasses import dataclass, field
+from collections import Counter
 
 from sqlalchemy.sql import and_
 
 from src.common.tools.library import safe_execute
 from src.stock.src.TickerServiceBase import Ticker, TickerServiceBase
-from src.stock.src.db.models import Action, BalanceSheet, Calendar, CashFlow, Financials, EarningsDates, TickerStatus
-from src.stock.src.db.models import InfoCashAndFinancialRatios, InfoCompanyAddress, InfoSectorIndustryHistory, InfoTradingSession
-from src.stock.src.db.models import InfoTargetPriceAndRecommendation, InfoMarketAndFinancialMetrics, InfoGeneralStock, InfoGovernance
-from src.stock.src.db.models import InsiderPurchases, InsiderRosterHolders, InsiderTransactions, InstitutionalHolders, MajorHolders, MutualFundHolders, Recommendations
-from src.stock.src.db.models import UpgradesDowngrades
+from src.stock.src.db.models import *
 from src.stock.src.CandleService import CandleService
 from src.stock.src.CandleDataInterval import CandleDataInterval
 from src.stock.src.insider_txs_utils import add_state_and_price
@@ -164,10 +161,10 @@ class TickerService(TickerServiceBase):
 
         # switch period_type:
         match period_type:
-            case 'annual':
-                balance_sheet = safe_execute(None, lambda: getattr(self.stock, "balance_sheet"))
+            case 'yearly':
+                balance_sheet = safe_execute(None, lambda: self.stock.get_balance_sheet(freq='yearly'))
             case 'quarterly':
-                balance_sheet = safe_execute(None, lambda: getattr(self.stock, "quarterly_balance_sheet"))
+                balance_sheet = safe_execute(None, lambda: self.stock.get_balance_sheet(freq='quarterly'))
             case _:
                 LOGGER.error(f"{self.ticker.symbol} - Invalid period_type: {period_type}. Expected 'annual' or 'quarterly'.")
                 return None
@@ -292,10 +289,12 @@ class TickerService(TickerServiceBase):
 
         # switch period_type:
         match period_type:
-            case 'annual':
-                cash_flow = safe_execute(None, lambda: getattr(self.stock, "cashflow"))
+            case 'yearly':
+                cash_flow = safe_execute(None, lambda: self.stock.get_cashflow(freq='yearly'))
             case 'quarterly':
-                cash_flow = safe_execute(None, lambda: getattr(self.stock, "quarterly_cashflow"))
+                cash_flow = safe_execute(None, lambda: self.stock.get_cashflow(freq='quarterly'))
+            case 'trailing':
+                cash_flow = safe_execute(None, lambda: self.stock.get_cashflow(freq='trailing'))
             case _:
                 LOGGER.error(f"{self.ticker.symbol} - Invalid period_type: {period_type}. Expected 'annual' or 'quarterly'.")
                 return None
@@ -412,10 +411,12 @@ class TickerService(TickerServiceBase):
 
         #switch period_type:
         match period_type:
-            case 'annual':
-                financials = safe_execute(None, lambda: getattr(self.stock, "financials"))
+            case 'yearly':
+                financials = safe_execute(None, lambda: self.stock.get_income_stmt(freq='yearly'))
             case 'quarterly':
-                financials = safe_execute(None, lambda: getattr(self.stock, "quarterly_financials"))
+                financials = safe_execute(None, lambda: self.stock.get_income_stmt(freq='quarterly'))
+            case 'trailing':
+                financials = safe_execute(None, lambda: self.stock.get_income_stmt(freq='trailing'))
             case _:
                 LOGGER.error(f"{self.ticker.symbol} - Invalid period_type: {period_type}. Expected 'annual' or 'quarterly'.")
                 return None
@@ -575,7 +576,7 @@ class TickerService(TickerServiceBase):
         :param stock: yf.Ticker object containing the insider purchases data.
         """
 
-        earnings_dates = safe_execute(None, lambda: getattr(self.stock, "earnings_dates"))
+        earnings_dates = safe_execute(None, lambda: self.stock.get_earnings_dates(limit=1000))
 
         # __ if earnings_dates is empty, return __
         if earnings_dates is None or (isinstance(earnings_dates, pd.DataFrame) and earnings_dates.empty):
@@ -618,6 +619,249 @@ class TickerService(TickerServiceBase):
         self.handle_generic_bulk_update(
             new_data_df=earnings_dates,
             model_class=EarningsDates
+        )
+
+    def handle_earnings_history(self) -> None:
+        """
+        Handle the insertion of earnings history data into the database.
+
+        :param stock: yf.Ticker object containing the earnings history data.
+        """
+
+        earnings_history = safe_execute(None, lambda: self.stock.get_earnings_history())
+
+        # __ if earnings_dates is empty, return __
+        if earnings_history is None or (isinstance(earnings_history, pd.DataFrame) and earnings_history.empty):
+            LOGGER.warning(f"{self.ticker.symbol} - {'Earnings History'.rjust(50)} - no data to insert")
+            return None
+
+        # __ rename and reset the index and convert it to date __
+        earnings_history.index.name = "quarter_date"
+        earnings_history.reset_index(inplace=True)
+        earnings_history['quarter_date'] = pd.to_datetime(earnings_history['quarter_date']).dt.date  # Ensure it's date only
+
+        # __ rename columns __
+        earnings_history.rename(columns={
+            'epsActual': 'eps_actual',
+            'epsEstimate': 'eps_estimate',
+            'epsDifference': 'eps_difference',
+            'surprisePercent': 'surprise_percent'
+        }, inplace=True)
+
+        # __ call the bulk update handler __
+        self.handle_generic_bulk_update(
+            new_data_df=earnings_history,
+            model_class=EarningsHistory
+        )
+
+    def handle_stock_splits(self) -> None:
+        """
+        Handle the insertion of stock splits into the database.
+
+        Accepts yfinance formats:
+          - DataFrame with columns ['Date', 'Stock Splits']
+          - Series indexed by Timestamp with float split factors
+        Normalizes to DataFrame with columns: ['date', 'factor'] and bulk-upserts.
+        """
+
+        # 1) Fetch splits (prefer the method; fall back to property)
+        splits_obj = safe_execute(None, lambda: self.stock.get_splits())
+        if splits_obj is None:
+            splits_obj = safe_execute(None, lambda: self.stock.splits)
+
+        # 2) Guard: empty/unexpected
+        if splits_obj is None:
+            LOGGER.warning(f"{self.ticker.symbol} - {'Stock Splits'.rjust(50)} - no data to insert")
+            return None
+
+        # 3) Normalize to DataFrame with ['date', 'factor']
+        if isinstance(splits_obj, pd.DataFrame):
+            df = splits_obj.copy()
+            # Expected columns from yfinance: 'Date' and 'Stock Splits'
+            # If 'Date' is an index, bring it out; otherwise rename columns.
+            if "Date" in df.columns and "Stock Splits" in df.columns:
+                df = df.rename(columns={"Date": "date", "Stock Splits": "factor"})
+            else:
+                # If yfinance returned Date as index, reset and map
+                if df.index.name and df.index.name.lower() == "date":
+                    df = df.reset_index().rename(columns={"index": "date"}).rename(columns={"Stock Splits": "factor"})
+                else:
+                    # Try to coerce: find a date-like col and a numeric col
+                    date_col = next((c for c in df.columns if c.lower() == "date"), None)
+                    num_cols = [c for c in df.columns if c != date_col and pd.api.types.is_numeric_dtype(df[c])]
+                    if not date_col or not num_cols:
+                        LOGGER.warning(f"{self.ticker.symbol} - {'Stock Splits'.rjust(50)} - unexpected DF columns: {list(df.columns)}")
+                        return None
+                    df = df.rename(columns={date_col: "date", num_cols[0]: "factor"})[["date", "factor"]]
+        elif isinstance(splits_obj, pd.Series):
+            # Series: index=Timestamp, value=float -> to DataFrame
+            df = splits_obj.rename("factor").to_frame()
+            if df.index.name != "date":
+                df.index.name = "date"
+            df = df.reset_index()
+        else:
+            LOGGER.warning(f"{self.ticker.symbol} - {'Stock Splits'.rjust(50)} - unexpected object type: {type(splits_obj)}")
+            return None
+
+        # 4) Clean/convert types
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["factor"] = pd.to_numeric(df["factor"], errors="coerce")
+        df = df.dropna(subset=["date", "factor"])
+
+        # Strip timezone and keep only the date part
+        df["date"] = df["date"].dt.tz_localize(None).dt.date
+
+        # yfinance sometimes includes zeros when no split; keep strictly positive
+        df = df[df["factor"] > 0]
+
+        # Deduplicate by day for this ticker
+        df = df.drop_duplicates(subset=["date"]).sort_values("date")
+
+        # 5) Empty guard after cleaning
+        if df.empty:
+            LOGGER.warning(f"{self.ticker.symbol} - {'Stock Splits'.rjust(50)} - no data to insert")
+            return None
+
+        # 6) Bulk upsert using your generic handler
+        self.handle_generic_bulk_update(
+            new_data_df=df,
+            model_class=StockSplits
+        )
+
+    def handle_shares_full(self) -> None:
+        """
+        Handle the insertion of full shares outstanding history into the database.
+
+        Accepts yfinance formats:
+          - DataFrame with columns ['Date', 'Shares']
+          - Series indexed by Timestamp with integer/float shares
+        Normalizes to DataFrame with columns: ['date', 'shares'] and bulk-upserts.
+        """
+        def collapse_duplicates_shares(df: pd.DataFrame, window: int = 5) -> pd.DataFrame:
+            """
+            Deduplicate same-day 'shares' using temporal consensus:
+            1) prefer previous canonical value if present among candidates
+            2) else prefer next unique day's value if present
+            3) else choose the candidate with the highest frequency in ±window;
+               tie-breaker: closest to rolling median.
+            Expects df with columns ['date','shares'] sorted by date.
+            """
+            df = df.sort_values("date").copy()
+
+            # candidates per day
+            cands_by_day = (
+                df.groupby("date")["shares"].apply(lambda s: sorted(set(s.tolist())))
+            )
+
+            # rolling median built on a single representative per day (median of that day)
+            per_day_median = df.groupby("date")["shares"].median()
+            roll_med = per_day_median.rolling(window=2 * window + 1, center=True, min_periods=1).median()
+
+            dates = list(cands_by_day.index)
+            out = []
+            prev_val = None
+
+            for i, d in enumerate(dates):
+                cands = cands_by_day.loc[d]
+                if len(cands) == 1:
+                    chosen = cands[0]
+                    out.append((d, int(round(chosen))))
+                    prev_val = chosen
+                    continue
+
+                # Next anchor: first future date that is unique
+                next_val = None
+                for j in range(i + 1, len(dates)):
+                    nxt = cands_by_day.iloc[j]
+                    if len(nxt) == 1:
+                        next_val = nxt[0]
+                        break
+
+                # Rule 1: previous day continuity
+                if prev_val is not None and prev_val in cands:
+                    chosen = prev_val
+                # Rule 2: next day continuity
+                elif next_val is not None and next_val in cands:
+                    chosen = next_val
+                else:
+                    # Rule 3: frequency in ±window, then proximity to rolling median
+                    left = max(0, i - window)
+                    right = min(len(dates), i + window + 1)
+                    window_vals = []
+                    for k in range(left, right):
+                        window_vals.extend(cands_by_day.iloc[k])
+                    freq = Counter(window_vals)
+                    center = roll_med.loc[d]
+
+                    def score(v):
+                        # higher freq is better; closer to center is better
+                        return (-freq.get(v, 0), abs((v - center) / max(center, 1)))
+
+                    chosen = min(cands, key=score)
+
+                out.append((d, int(round(chosen))))
+                prev_val = chosen
+
+            return pd.DataFrame(out, columns=["date", "shares"])
+
+        # 1) Fetch from yfinance (prefer the method; fallback to property if needed)
+        shares_obj = safe_execute(None, lambda: self.stock.get_shares_full())
+        if shares_obj is None:
+            # Some yfinance versions expose .get_shares_full only; no standard property fallback
+            pass
+
+        # 2) Guard
+        if shares_obj is None:
+            LOGGER.warning(f"{self.ticker.symbol} - {'Shares Full'.rjust(50)} - no data to insert")
+            return None
+
+        # 3) Normalize to DataFrame with ['date', 'shares']
+        if isinstance(shares_obj, pd.DataFrame):
+            df = shares_obj.copy()
+            # Most common yfinance shape: columns ['Date', 'Shares']
+            if "Date" in df.columns and "Shares" in df.columns:
+                df = df.rename(columns={"Date": "date", "Shares": "shares"})[["date", "shares"]]
+            else:
+                # Try to coerce: a date-like col + numeric col
+                date_col = next((c for c in df.columns if c.lower() == "date"), None)
+                num_cols = [c for c in df.columns if c != date_col and pd.api.types.is_numeric_dtype(df[c])]
+                if not date_col or not num_cols:
+                    LOGGER.warning(f"{self.ticker.symbol} - {'Shares Full'.rjust(50)} - unexpected DF columns: {list(df.columns)}")
+                    return None
+                df = df.rename(columns={date_col: "date", num_cols[0]: "shares"})[["date", "shares"]]
+        elif isinstance(shares_obj, pd.Series):
+            # Series: index=Timestamp, value=shares -> to DataFrame
+            df = shares_obj.rename("shares").to_frame()
+            if df.index.name != "date":
+                df.index.name = "date"
+            df = df.reset_index()
+        else:
+            LOGGER.warning(f"{self.ticker.symbol} - {'Shares Full'.rjust(50)} - unexpected object type: {type(shares_obj)}")
+            return None
+
+        # 4) Clean types
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["shares"] = pd.to_numeric(df["shares"], errors="coerce")
+        df = df.dropna(subset=["date", "shares"])
+
+        # Strip timezone and keep only DATE
+        df["date"] = df["date"].dt.tz_localize(None).dt.date
+
+        # Shares must be >= 0 and integer-like; round safely
+        df = df[df["shares"] >= 0]
+        df["shares"] = df["shares"].round().astype("Int64")  # nullable integer; DB is BIGINT
+
+        df = collapse_duplicates_shares(df)  # resolve same-day duplicates
+        df = df.drop_duplicates(subset=["date"])  # defensive
+
+        if df.empty:
+            LOGGER.warning(f"{self.ticker.symbol} - {'Shares Full'.rjust(50)} - no data to insert")
+            return None
+
+        # 5) Bulk upsert using your generic handler
+        self.handle_generic_bulk_update(
+            new_data_df=df,
+            model_class=SharesFull
         )
 
     def handle_ticker_status(self, status: str, error: str) -> None:
@@ -1126,7 +1370,7 @@ class TickerService(TickerServiceBase):
         :param stock: yf.Ticker object containing the insider purchases data.
         """
 
-        insider_transactions = safe_execute(None, lambda: getattr(self.stock, "insider_transactions"))
+        insider_transactions = safe_execute(None, lambda: self.stock.get_insider_transactions())
 
         # __ if insider transactions is empty, return __
         if insider_transactions is None or (isinstance(insider_transactions, pd.DataFrame) and insider_transactions.empty):

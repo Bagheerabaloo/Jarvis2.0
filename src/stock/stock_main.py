@@ -9,6 +9,7 @@ from sqlalchemy.orm import session as sess
 from src.stock.src.db.database import session_local
 from src.stock.src.Queries import Queries
 from src.stock.src.StockUpdater import StockUpdater
+from src.stock.src.db.models import *
 
 from src.common.telegram_manager.telegram_manager import TelegramBot
 from src.common.file_manager.FileManager import FileManager
@@ -45,6 +46,51 @@ def refresh_materialized_views(session: sess.Session):
 
     # __ sqlAlchemy __ close the session
     session.close()
+
+
+def bronze_to_silver(session: sess.Session):
+    """
+    Upsert from bronze `earnings_history` to silver `slv_earnings_history`,
+    deriving `quarter` ('Q1'..'Q4') and `year` from `quarter_date`.
+
+    - Primary key on silver: (ticker_id, quarter_date, last_update)
+    - On conflict, updates all non-key columns.
+
+    Args:
+        session: SQLAlchemy Session (transaction managed by caller).
+        since_last_update: optional filter to process only bronze rows with last_update >= this date.
+        ticker_ids: optional iterable of ticker IDs to restrict the upsert.
+
+    Returns:
+        Number of rows inserted/updated (as reported by DB).
+    """
+    import sqlalchemy as sa
+
+    RAW_SQL_BRONZE_TO_SILVER = """
+        INSERT INTO slv_earnings_history
+        (ticker_id, quarter_date, last_update, quarter, year, eps_actual, eps_estimate, eps_difference, surprise_percent)
+        SELECT e.ticker_id,
+          e.quarter_date,
+          e.last_update,
+          'Q' || to_char(e.quarter_date, 'Q') AS quarter,
+          EXTRACT(YEAR FROM e.quarter_date) ::int AS year,
+        e.eps_actual,
+        e.eps_estimate,
+        e.eps_difference,
+        e.surprise_percent
+        FROM earnings_history e
+        ON CONFLICT (ticker_id, quarter_date, last_update) DO UPDATE  
+        SET 
+            quarter = EXCLUDED.quarter,
+            year = EXCLUDED.year,
+            eps_actual = EXCLUDED.eps_actual,
+            eps_estimate = EXCLUDED.eps_estimate,
+            eps_difference = EXCLUDED.eps_difference,
+            surprise_percent = EXCLUDED.surprise_percent
+        """
+    sql = RAW_SQL_BRONZE_TO_SILVER
+    res = session.execute(sa.text(sql))
+    return res.rowcount or 0
 
 
 def set_up_telegram_bot():
@@ -106,9 +152,11 @@ def select_only_yfinance_error_tickers(session: sess.Session, limit: int = 3000)
 
     return symbols
 
+
 def main(process_name_: str = None,
          limit: int = 3000,
          add_sp500: bool = True,
+         only_sp500: bool = False,
          only_yf_error: bool = False,
          refresh_materialized: bool = True):
     # __ sqlAlchemy __ create new session
@@ -120,12 +168,23 @@ def main(process_name_: str = None,
     if only_yf_error:
         # __ get only yfinance error tickers __
         symbols = select_only_yfinance_error_tickers(session=session, limit=limit)
+    elif only_sp500:
+        # __ get only sp500 tickers __
+        queries = Queries(session, remove_yfinance_error_tickers=False)
+        symbols = queries.get_sp500_tickers()
+        LOGGER.info(f"{'Total tickers:'.ljust(25)} {len(symbols)}")
     else:
         symbols = select_tickers(session=session, limit=limit, add_sp500=add_sp500)
 
     LOGGER.info(process_name_)
 
-    stock_updater = StockUpdater(session=session)
+    # __ get list of invalid symbols __
+    queries = Queries(session)
+    symbols_with_errors = queries.get_yfinance_error_tickers()
+
+    # symbols=['MSFT']
+
+    stock_updater = StockUpdater(session=session, symbols_with_errors=symbols_with_errors)
     results = stock_updater.update_all_tickers(symbols=symbols)
 
     # __ refresh materialized views __
@@ -211,6 +270,6 @@ if __name__ == '__main__':
     if process_name == 'scheduled':
         main(process_name)
     else:
-        main(process_name, limit=100, add_sp500=False, only_yf_error=False, refresh_materialized=False)
+        main(process_name, limit=1000, only_sp500=True, add_sp500=True, only_yf_error=False, refresh_materialized=False)
         # update_only_candles(process_name)
     # plot_candles()

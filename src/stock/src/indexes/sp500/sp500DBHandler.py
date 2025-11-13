@@ -13,6 +13,7 @@ from src.common.tools.library import seconds_to_time, safe_execute
 from src.stock.src.TickerService import TickerService
 from src.stock.src.db.database import session_local
 from src.stock.src.db.models import SP500Changes, SP500Historical
+import requests
 
 session = session_local()
 
@@ -324,7 +325,18 @@ def update_sp500_historical_from_change():
         """Downloads list of tickers currently listed in the S&P 500"""
 
         # __ get list of all S&P 500 stocks __
-        sp500 = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")[0]
+        # sp500 = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")[0]
+
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+
+        # Imposta un header per "camuffare" la richiesta come se fossi un browser
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+        }
+
+        response = requests.get(url, headers=headers)
+        sp500 = pd.read_html(response.text)[0]
 
         if include_company_data:
             return sp500
@@ -464,6 +476,8 @@ def update_sp500_historical_from_change():
         return None
 
     # __ update historical S&P 500 components with changes __
+    print(f"Found {len(last_changes)} changes since {last_date}.")
+    print("Updating S&P 500 historical components with changes...")
     new_historical = add_changes_to_historical_sp500(last_sp500_df, last_changes)
 
     # __ compare last row to current S&P500 list __

@@ -24,8 +24,9 @@ from src.stock.src.RaiseOnErrorHandler import RaiseOnErrorHandler
 
 
 class StockUpdater:
-    def __init__(self, session: sess.Session):
+    def __init__(self, session: sess.Session, symbols_with_errors: Optional[list[str]] = None):
         self.session = session
+        self.symbols_with_errors = symbols_with_errors
 
     def execute_function(self,
                          default,
@@ -100,7 +101,12 @@ class StockUpdater:
         # __ update all tickers __
         for index, symbol in enumerate(symbols):
             try:
-                ticker_updater = TickerUpdater(session=self.session, symbol=symbol)
+                # check if the symbol is in the list of yfinance errors
+                if len(self.symbols_with_errors or []) > 0 and symbol in self.symbols_with_errors:
+                    has_yf_errors = True
+                else:
+                    has_yf_errors = False
+                ticker_updater = TickerUpdater(session=self.session, symbol=symbol, has_yf_errors=has_yf_errors)
                 LOGGER.info(f"{symbol.rjust(5)} - {index+1}/{num_symbols} - Start updating...")
                 middle, end = ticker_updater.update_ticker()
                 middle_time_secs += middle

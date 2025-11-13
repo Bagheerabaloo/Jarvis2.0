@@ -62,6 +62,7 @@ def _prep_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         r2.setdefault("last_seen_at", now)
         r2.setdefault("change_count", 0)
         r2.setdefault("is_active", True)
+        r2.setdefault("is_available", True)
         out.append(r2)
     return out
 

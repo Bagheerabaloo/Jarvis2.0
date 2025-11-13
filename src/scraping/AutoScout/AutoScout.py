@@ -20,37 +20,37 @@ from copy import deepcopy
 from typing import Union
 from typing import List, Dict, Any
 from sqlalchemy import select
+import sqlalchemy as sa
+from datetime import datetime, timezone
+
 
 from src.common.tools.library import *
 from src.common.web_driver.ChromeDriver import ChromeDriver
 from src.common.web_driver.FirefoxDriver import FirefoxDriver
 
-from src.scraping.AutoScout.upsert_precise_pg import upsert_listings_summary_precise
-from src.scraping.AutoScout.upsert_details_pg import upsert_listing_detail
-from src.scraping.AutoScout.geo_utils import compute_air_distance_for_rows
 from src.scraping.AutoScout.db.database import session_local
 from src.scraping.AutoScout.db.models import ListingSummary, ListingDetail, ListingDistance
 from src.scraping.AutoScout.validators_autoscout import filter_listings_for_request
+from src.scraping.AutoScout.upsert_precise_pg import upsert_listings_summary_precise
+from src.scraping.AutoScout.upsert_details_pg import upsert_listing_detail
+from src.scraping.AutoScout.geo_utils import compute_air_distance_for_rows
+from src.scraping.AutoScout.telegram_notifications import *
 
 from src.common.telegram_manager.telegram_manager import TelegramBot
 from src.common.file_manager.FileManager import FileManager
 from typing import Tuple, List, Dict, Optional
 
 
-def set_up_telegram_bot():
-    telegram_token_key = "TELEGRAM_TOKEN"
-    config_manager = FileManager()
-    token = config_manager.get_telegram_token(database_key=telegram_token_key)
-    admin_info_1 = config_manager.get_admin()
-    admin_info_2 = config_manager.get_admin(database_key="TELEGRAM_MARINELLA")
-    telegram_bot = TelegramBot(token=token)
-    return [admin_info_1, admin_info_2], telegram_bot
 
-
-MAX_PRICE = "7.000 €"
-RADIUS = "100 km"
+MAX_PRICE = "9.000 €"
+RADIUS = "50 km"
+MAX_MILEAGE_KM = "100.000"
+PRICE_MAX = 9_000
+MILEAGE_MAX = 100_000
+REQUIRED_SELLER = "Privato"
 
 FILTER = True
+SEND_WITHDRAWN_ALERTS = False  # whether to notify also about withdrawn listings
 
 
 class Browser(str, Enum):
@@ -68,13 +68,17 @@ class AutoScout:
         self.browser = browser
         self.lock = Lock()
 
+        self.filter = FILTER
+
     # __ initialization __
     def init_driver(self):
         # __ init webdriver __
         if self.browser == Browser.chrome:
             self.driver = ChromeDriver()
+            self.driver.init_driver()
         elif self.browser == Browser.firefox:
             self.driver = FirefoxDriver(headless=self.headless, selenium_profile=True)
+            self.driver.init_driver()
         else:
             self.driver = None
 
@@ -87,15 +91,12 @@ class AutoScout:
         if self.driver.driver:
             self.driver.close_driver()
         self.lock.release()
+        self.driver = None
 
     # __ main __
-    def main(self):
+    async def main(self, telegram_bot: TelegramBot, admin_info: list[dict]) -> None:
         # __ set up web driver __
-        self.init_driver()
-        self.driver.init_driver()
-
-        # __ set up telegram bot __
-        admin_info, telegram_bot = set_up_telegram_bot()
+        self.init_driver() if not self.driver else None
 
         # __ Get Booking search results page __ #
         self._get_starting_page()
@@ -103,20 +104,14 @@ class AutoScout:
         print("navigator.hardwareConcurrency =", self.driver.driver.execute_script("return navigator.hardwareConcurrency"))
         print("navigator.deviceMemory =", self.driver.driver.execute_script("return navigator.deviceMemory"))
 
-        sleep(5)
         # __ Reject cookies __
         safe_execute(None, self._reject_cookies)
-        sleep(5)
-        self.driver.click_link_by_class("hf-searchmask-form__detail-search")
-        sleep(5)
-        self.fill_requested_filters()
-        sleep(8)
 
-        btn = self.driver.wait_until_clickable_by_xpath("//button[contains(@class,'DetailSearchPage_button__')]")
-        self.driver.scroll_into_view(btn, block="center")
-        self.driver.click_element(btn)
-
-        sleep(5)
+        # __ Fill search form and submit __
+        if not self.fill_search_form_and_submit():
+            print("Failed to fill and submit search form.")
+            self.close_driver()
+            return
 
         # rows = self.scrape_pages(2)
         rows = self.scrape_all_pages() # TODO: add ordering by latest
@@ -125,13 +120,67 @@ class AutoScout:
         with session_local() as session:
             result = upsert_listings_summary_precise(session, rows)
 
+        # __ load newly inserted listings from DB __
         rows = self.load_new_listings(result["inserted_ids"])
         if not rows:
             return
 
-        # --- validate against your search filters ---
-        if FILTER:
-            valid_rows, rejected = filter_listings_for_request(
+        # __ validate against your search filters __
+        valid_rows = self.validate_listing(rows)
+
+        # __ scrape details for the new and valid ones __
+        detailed_rows = self.scrape_and_store_details_for_new(valid_rows)
+
+        # __ compute air distances for the valid ones __
+        with session_local() as s:
+            dist_by_id = compute_air_distance_for_rows(s, valid_rows, detailed_rows=detailed_rows, base_address="Via Primaticcio, Milano")
+
+        print("=== Run completed ===")
+        print("Inserted:", len(result["inserted_ids"]))
+        print("Updated:", len(result["updated_ids"]))
+        print("Unchanged:", len(result["unchanged_ids"]))
+
+        # __ notify via Telegram __
+        await notify_inserted_listings_via_telegram(
+            valid_rows=valid_rows,
+            telegram_bot=telegram_bot,
+            admin_info=admin_info,
+            dist_by_id=dist_by_id,
+            detailed_rows=detailed_rows)
+
+        # # __ close driver __
+        # self.close_driver()
+
+    def _get_starting_page(self) -> None:
+        base_url = "https://www.autoscout24.it/"
+        self.driver.get_url(base_url, add_slash=True)
+        sleep(5)
+
+    def _reject_cookies(self):
+        self.driver.find_element_by_xpath(xpath=f"//button[@class='{self.reject_cookies_class[-1]}']").click()
+        sleep(2)
+        self.driver.find_element_by_xpath(xpath=f"//button[@class='scr-button scr-button--secondary']").click()
+        sleep(5)
+        return True
+
+    # 1) DB -> load ListingSummary rows for inserted_ids
+    def load_new_listings(self, inserted_ids: list[str]) -> list[ListingSummary]:
+        """Fetch newly inserted listings from DB."""
+        if not inserted_ids:
+            return []
+
+        with session_local() as s:
+            return (
+                s.execute(
+                    select(ListingSummary).where(ListingSummary.listing_id.in_(inserted_ids))
+                )
+                .scalars()
+                .all()
+            )
+
+    def validate_listing(self, rows: List[ListingSummary]) -> List[ListingSummary]:
+        if self.filter:
+            valid_rows = filter_listings_for_request(
                 rows,
                 min_year=2015,
                 max_price=int(MAX_PRICE.replace(".", "").replace("€", "").strip()),
@@ -142,186 +191,7 @@ class AutoScout:
             )
         else:
             valid_rows = rows
-            rejected = []
-
-        # Log (or print) rejected items with reasons
-        for r in rejected:
-            print(f"[SKIP] {r['listing_id']}: {', '.join(r['reasons'])}  | {r.get('title', '')}")
-
-        detailed_rows = self.scrape_and_store_details_for_new(valid_rows)
-
-        with session_local() as s:
-            dist_by_id = compute_air_distance_for_rows(s, valid_rows,
-                                                       detailed_rows=detailed_rows,
-                                                       base_address="Via Primaticcio, Milano",
-                                                       )
-
-        print("=== Run completed ===")
-        print("Inserted:", len(result["inserted_ids"]))
-        print("Updated:", len(result["updated_ids"]))
-        print("Unchanged:", len(result["unchanged_ids"]))
-
-        self.notify_inserted_listings_via_telegram(
-            valid_rows=valid_rows,
-            telegram_bot=telegram_bot,
-            admin_info=admin_info,
-            dist_by_id=dist_by_id,
-            detailed_rows=detailed_rows)
-
-        # close the driver
-        self.close_driver()
-
-    def _get_starting_page(self) -> None:
-        base_url = "https://www.autoscout24.it/"
-        self.driver.get_url(base_url, add_slash=True)
-
-    def _reject_cookies(self):
-        self.driver.find_element_by_xpath(xpath=f"//button[@class='{self.reject_cookies_class[-1]}']").click()
-        sleep(2)
-        self.driver.find_element_by_xpath(xpath=f"//button[@class='scr-button scr-button--secondary']").click()
-        return True
-
-    # 1) DB -> load ListingSummary rows for inserted_ids
-    def load_new_listings(self, inserted_ids: list[str]) -> list[ListingSummary]:
-        """Fetch newly inserted listings from DB."""
-        if not inserted_ids:
-            return []
-        with session_local() as s:
-            return (
-                s.execute(
-                    select(ListingSummary).where(ListingSummary.listing_id.in_(inserted_ids))
-                )
-                .scalars()
-                .all()
-            )
-
-    # 2) Build Telegram message text (Markdown-friendly)
-    def _fmt_eur(self, n: int | None) -> str:
-        if n is None:
-            return "n.d."
-        return f"{n:,.0f}".replace(",", ".")  # 12.345
-
-    def build_listing_text(self, ls: ListingSummary, air_km: float | None = None,
-                           price_label: str | None = None,
-                           tech_displacement: str | None = None,
-                           env_consumption: str | None = None,
-                           env_emission_class: str | None = None,
-                           seller_phone: str | None = None) -> str:
-        """Return a Markdown caption for a listing."""
-
-        def _compute_age(first_registration: str) -> str:
-            """
-            Convert a 'MM-YYYY' or 'YYYY' string to a textual age like '5 anni e 3 mesi'.
-            Returns '' if not computable.
-            """
-            if not first_registration:
-                return ""
-            try:
-                # AutoScout tipicamente ha formato 'MM/YYYY' oppure 'MM-YYYY' oppure solo 'YYYY'
-                parts = first_registration.replace('/', '-').split('-')
-                if len(parts) == 2:
-                    month = int(parts[0])
-                    year = int(parts[1])
-                elif len(parts) == 1:
-                    month = 6  # se non c'è il mese, assumiamo giugno per un'approssimazione
-                    year = int(parts[0])
-                else:
-                    return ""
-
-                now = datetime.now()
-                years = now.year - year
-                months = now.month - month
-                if months < 0:
-                    years -= 1
-                    months += 12
-                return f"{years} anni e {months} mesi"
-            except Exception:
-                return ""
-
-        title = ls.title or f"{(ls.make or '').title()} {(ls.model or '').title()}".strip()
-        subtitle = f"_{ls.subtitle}_" if ls.subtitle else ""
-        price = self._fmt_eur(ls.price_eur_num)
-        air_km = f"{air_km:.1f}" if air_km is not None else "-"
-        age_text = _compute_age(ls.first_registration)
-
-        location = ls.location_text or (ls.zip_code or "n.d.")
-        link = ls.detail_url or f"https://www.autoscout24.it/annunci/{ls.listing_id}"
-
-        lines = [
-            "🚗 *NUOVO ANNUNCIO*",
-            f"*{title}*",
-            subtitle,
-            f"👤 {ls.seller_type or 'n.d.'}",
-            f"📍 {location}",
-            f"📏 Distanza (aria): *{air_km} km*",
-            f"📆 Anno: {ls.first_registration or 'n.d.'} • {age_text}",
-            f"🛣️ Km: {ls.mileage_text or 'n.d.'}",
-            # f"Carburante: {ls.fuel_text or 'n.d.'} • Cambio: {ls.gearbox or 'n.d.'}",
-            f"⚙️ Cilindrata: {tech_displacement}",
-            f"⛽ Carburante: {ls.fuel_text or 'n.d.'}",
-            f"💧 Consumo: {env_consumption}",
-            f"🌿 Classe Emissioni: {env_emission_class}",
-            f"💶 Prezzo: *{price} €* • {price_label}",
-            (f"📞 {seller_phone}" if seller_phone is not None else None)
-            # link,
-        ]
-        return "\n".join([l for l in lines if l])
-
-    def notify_inserted_listings_via_telegram(self, valid_rows, telegram_bot, admin_info: list[dict],
-                                              dist_by_id: dict[str, float] | None = None,
-                                              detailed_rows: dict[str, dict] | None = None):
-        """Load new listings and send them to Telegram (photo if available, else text)."""
-        if len(valid_rows) == 0:
-            return
-
-        for ls in valid_rows:
-            air_km = (dist_by_id or {}).get(ls.listing_id)
-            price_label = (detailed_rows or {}).get(ls.listing_id, {}).get("price_label")
-            tech_displacement = (detailed_rows or {}).get(ls.listing_id, {}).get("tech_displacement")
-            env_consumption = (detailed_rows or {}).get(ls.listing_id, {}).get("env_consumption")
-            env_emission_class = (detailed_rows or {}).get(ls.listing_id, {}).get("env_emission_class")
-            seller_phone = (detailed_rows or {}).get(ls.listing_id, {}).get("seller_phone")
-
-            caption = self.build_listing_text(ls, air_km=air_km, price_label=price_label,
-                                              tech_displacement=tech_displacement, env_consumption=env_consumption,
-                                              env_emission_class=env_emission_class,
-                                              seller_phone=seller_phone)
-
-            link = ls.detail_url or f"https://www.autoscout24.it/annunci/{ls.listing_id}"
-            keyboard = {'text': 'Apri su AutoScout24', 'url': link}
-            #     {'text': "Non mostrare più", 'data': f"as24_hide@{ls.listing_id}"},
-            # ]
-
-            for info in admin_info:
-                sent = False
-                if ls.image_url:
-                    try:
-                        resp = requests.get(ls.image_url, timeout=10)
-                        resp.raise_for_status()
-                        buf = io.BytesIO(resp.content)
-                        buf.seek(0)
-                        asyncio.run(
-                            telegram_bot.send_photo_async(
-                                chat_id=info["chat"],
-                                photo=buf,
-                                caption=caption,
-                                inline_keyboard=keyboard,
-                                parse_mode="Markdown",
-                            )
-                        )
-                        sent = True
-                    except Exception as e:
-                        print(f"Failed to send photo for {ls.listing_id}: {e}")
-
-                if not sent:
-                    asyncio.run(
-                        telegram_bot.send_message(
-                            chat_id=info["chat"],
-                            text=f"{caption}",
-                            inline_keyboard=keyboard,
-                            parse_mode="Markdown",
-                        )
-                    )
+        return valid_rows
 
     # _________ Listing Details __________
     def scrape_and_store_details_for_new(self, new_rows: List[ListingSummary]) -> Dict[str, dict]:
@@ -607,6 +477,18 @@ class AutoScout:
             pass
 
     # ---------- scenario 1 ----------
+    def fill_search_form_and_submit(self) -> bool:
+        try:
+            self.driver.click_link_by_class("hf-searchmask-form__detail-search")
+            self.fill_requested_filters()
+            btn = self.driver.wait_until_clickable_by_xpath("//button[contains(@class,'DetailSearchPage_button__')]")
+            self.driver.scroll_into_view(btn, block="center")
+            self.driver.click_element(btn)
+            sleep(5)
+            return True
+        except:
+            return False
+
     def fill_requested_filters(self):
         """Fill all requested filters in one go."""
         self.set_fuel_types(["Elettrica/Benzina", "Benzina", "Metano", "GPL"])  # Carburante: Elettrica/Benzina, Benzina, Metano, GPL
@@ -617,6 +499,7 @@ class AutoScout:
         self.set_radius(RADIUS)
         self.set_mileage_to("100.000")
         self.select_seller_privato()
+        sleep(8)
 
     # ---------- low-level helpers (page-specific, but only via self.driver API) ----------
     def _open_combo(self, button_id: str):
@@ -986,8 +869,11 @@ class AutoScout:
             sleep(5)
 
             # Parse current page
-            rows = self.parse_listings_on_page()
-            all_rows.extend(rows)
+            try:
+                rows = self.parse_listings_on_page()
+                all_rows.extend(rows)
+            except:
+                pass
 
             # Stop conditions:
             if max_pages is not None and page_index >= max_pages:
@@ -1009,15 +895,215 @@ class AutoScout:
         """
         return self.scrape_all_pages(max_pages=pages)
 
+    # ---------- verify availability ----------
+    def _is_detail_gone(self, soup) -> bool:
+        """
+        Robustly detect the 'not available' detail page.
+        Avoids relying on hashed CSS class suffixes and normalizes text.
+        """
+        # 1) Main container like <main class="GonePage_main__...">
+        main_gone = soup.find(
+            'main',
+            class_=lambda cs: cs and any(str(c).startswith('GonePage_main__')
+                                         for c in (cs if isinstance(cs, list) else [cs]))
+        )
+        if main_gone:
+            return True
 
-if __name__ == '__main__':
+        # 2) Headline like <div class="GonePage_title__..."> ... "non è più disponibile"
+        title_el = soup.find(
+            lambda tag: tag.name in ('div', 'p', 'h1', 'h2', 'h3')
+                        and any(str(c).startswith('GonePage_title__') for c in (tag.get('class') or []))
+        )
+        if title_el:
+            import unicodedata, re
+            txt = unicodedata.normalize('NFKD', title_el.get_text(" ", strip=True))
+            txt = ''.join(ch for ch in txt if not unicodedata.combining(ch)).lower()
+            txt = re.sub(r'\s+', ' ', txt)
+            if 'non e piu disponibile' in txt:  # accent-insensitive
+                return True
+
+        # 3) CTA "Mostra altri ..." inside a GonePage link/button container
+        btn = soup.find('a', class_=lambda cs: cs and 'scr-button' in cs and 'scr-button--primary' in cs)
+        if btn and btn.get_text(" ", strip=True).startswith('Mostra altri'):
+            parent = btn.find_parent(
+                lambda tag: any(str(c).startswith('GonePage_linkAndButtonContainer__')
+                                for c in (tag.get('class') or []))
+            )
+            if parent:
+                return True
+
+        return False
+
+    async def verify_availability_and_mark(self,
+                                     telegram_bot: TelegramBot,
+                                     admin_info: list[dict],
+                                     max_to_check: int = 30,
+                                     price_lte: int = 9000,
+                                     max_mileage_km: int = 100000,
+                                     seller_type: str = 'Privato'
+                                     ):
+        """
+        Fetch listings that match the criteria, open each detail URL,
+        detect if the ad is 'gone', and update availability flags on ListingSummary.
+        Filters applied:
+          - is_available = TRUE
+          - price_eur_num <= price_lte
+          - mileage_num < 100_000
+          - seller_type == 'Privato'
+          - (optional) fuel_text IN fuels
+          - (optional) is_active = TRUE
+        """
+
+        # __ set up web driver __
+        self.init_driver() if not self.driver else None
+
+        now = datetime.now(timezone.utc)
+
+        with session_local() as session:
+            q = session.query(ListingSummary).filter(
+                ListingSummary.is_available.is_(True),
+                ListingSummary.price_eur_num.isnot(None),
+                ListingSummary.price_eur_num <= price_lte,
+                ListingSummary.mileage_num.isnot(None),
+                ListingSummary.mileage_num < max_mileage_km,
+                ListingSummary.seller_type == seller_type,
+            )
+
+            # priority is given to those that haven't been checked yet
+            q = q.order_by(
+                ListingSummary.last_availability_check_at.asc().nullsfirst(),
+                ListingSummary.first_seen_at.desc(),
+            ).limit(max_to_check)
+
+            candidates: list[ListingSummary] = q.all()
+
+            for ls in candidates:
+                url = ls.detail_url or f"https://www.autoscout24.it/annunci/{ls.listing_id}"
+                try:
+                    self._open_detail_in_new_tab(url)
+                    self.driver.web_driver_wait(10)
+                    sleep(2)
+                    soup = self.driver.get_response()
+
+                    gone = self._is_detail_gone(soup)
+                    ls.last_availability_check_at = now
+                    if gone and ls.is_available:
+                        print(f"[availability] marking gone {ls.listing_id} ({url})")
+                        if telegram_bot and admin_info and SEND_WITHDRAWN_ALERTS:
+                            admin_chat = [x['chat'] for x in admin_info if x['is_admin']][0]
+                            await telegram_bot.send_message(
+                                admin_chat,
+                                f"⚠️ AutoScout: annuncio non più disponibile!\n{ls.title}\n{url}"
+                            )
+                        ls.is_available = False
+                        ls.unavailable_at = now
+
+                    session.add(ls)
+                    session.commit()
+                except Exception as e:
+                    session.rollback()
+                    print(f"[availability] fail {ls.listing_id}: {e}")
+                finally:
+                    try:
+                        self._close_current_tab_and_back()
+                    except Exception:
+                        pass
+
+        # self.close_driver()
+
+    # ---------- end of day summary ----------
+    @staticmethod
+    async def _send_eod(telegram_bot, admin_info, text):
+        # Send sequentially within one loop - sending to all admin
+        for info in admin_info:
+            await telegram_bot.send_message(
+                chat_id=info["chat"],
+                text=text,
+                parse_mode="Markdown",
+            )
+
+    async def send_end_of_day_summary(self, telegram_bot, admin_info: list[dict], day: datetime | None = None, limit_per_make_model: int = 3):
+        """
+        - takes the 'new' listings of the day (first_seen_at during the day, eligible)
+        - takes the 'withdrawn' listings of the day (unavailable_at during the day
+        - sends a single Telegram message with a brief summary
+        """
+        from src.scraping.AutoScout.db.database import session_local
+        from src.scraping.AutoScout.db.models import ListingSummary
+
+        start_utc, end_utc = rome_day_window(day)
+
+        with session_local() as s:
+            # NEW: first_seen_at during the day, eligible, and still available
+            q_new = (
+                s.query(ListingSummary)
+                .where(ListingSummary.first_seen_at >= start_utc,
+                       ListingSummary.first_seen_at < end_utc,
+                       ListingSummary.is_available.is_(True),
+                       ListingSummary.price_eur_num.isnot(None),
+                       ListingSummary.price_eur_num <= PRICE_MAX,
+                       ListingSummary.mileage_num.isnot(None),
+                       ListingSummary.mileage_num <= MILEAGE_MAX,
+                       ListingSummary.seller_type == REQUIRED_SELLER)
+            )
+            new_rows = q_new.all()
+
+            # WITHDRAWN: changed to unavailable today (unavailable_at during the day)
+            q_gone = (
+                s.query(ListingSummary)
+                .where(ListingSummary.unavailable_at.isnot(None),
+                       ListingSummary.unavailable_at >= start_utc,
+                       ListingSummary.unavailable_at < end_utc)
+            )
+            withdrawn_rows = q_gone.all()
+
+        text = build_daily_summary_text(new_rows, withdrawn_rows)
+        await self._send_eod(telegram_bot, admin_info, text)
+
+
+async def main():
     brwsr = Browser.firefox
-    app = AutoScout(browser=brwsr, headless=False, sslmode='disable')
+
+    # __ set up telegram bot __
+    keys = ["ADMIN_INFO", "TELEGRAM_MARINELLA"]
+    admin_info, telegram_bot = set_up_telegram_bot(keys=keys)
+
+    counter = 0
+
+    app = AutoScout(browser=brwsr, headless=True, sslmode='disable')
     while True:
         hour = datetime.now().hour
-        if 9 <= hour < 24:
-            app.main()
-        else:
-            print("⏸ Pausa notturna: nessuna esecuzione tra 00:00 e 09:00")
+        bool_ = 9 <= hour < 24
+        if not bool_:
+            print("⏸ Pausa notturna: nessuna esecuzione tra le 00:00 e le 09:00")
+            if counter == 0:
+                await app.send_end_of_day_summary(telegram_bot, admin_info)
+            counter += 1
+            sleep(10*60)
+            continue
 
-        sleep(30 * 60)  # wait 15 minutes before next run
+        try:
+            await app.main(telegram_bot=telegram_bot, admin_info=admin_info)
+            await app.verify_availability_and_mark(
+                telegram_bot=telegram_bot,
+                admin_info=admin_info,
+                max_to_check=100,
+                price_lte=int(MAX_PRICE.replace(".", "").replace("€", "").strip()),
+                max_mileage_km=int(MAX_MILEAGE_KM.replace(".", "")),
+                seller_type='Privato'
+            )
+            counter = 0
+        except Exception as e:
+            print(f"❌ Errore fatale: {e}")
+            if telegram_bot and admin_info:
+                admin_chat = [x['chat'] for x in admin_info if x['is_admin']][0]
+                await telegram_bot.send_message(admin_chat, f"❌ Errore fatale in AutoScout: {e}")
+        finally:
+            app.close_driver()
+
+        sleep(30 * 60)  # wait 30 minutes before next run
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

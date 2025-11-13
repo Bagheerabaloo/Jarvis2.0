@@ -180,7 +180,7 @@ def add_state_and_price(df: pd.DataFrame, text_col: str = "Text",
     for t, lo in zip(texts, pmin):
         state = classify_state(t, None if pd.isna(lo) else float(lo))
         if state is None:
-            LOGGER.warning("Transaction NOT found: %s", t)
+            # LOGGER.warning("Transaction NOT found: %s", t)
             state = "Passive/Scheduled"  # fallback prudente
         stati.append(state)
 
@@ -196,7 +196,6 @@ def add_state_and_price(df: pd.DataFrame, text_col: str = "Text",
         ) if isinstance(s, str) and s.strip() != "" else np.nan  # NaN solo se il prezzo manca
     )
 
-    LOGGER.info(f"Added columns '{state_col}' and '{price_col}' to DataFrame.")
-
+    # LOGGER.info(f"Added columns '{state_col}' and '{price_col}' to DataFrame.")
     return df
 

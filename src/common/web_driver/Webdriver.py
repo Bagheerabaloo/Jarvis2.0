@@ -229,6 +229,8 @@ class WebDriver:
         except Exception as e:
             print(f"Anchor con classe '{class_name}' non cliccabile: {e}")
 
+        sleep(5)
+
     def click_by_css(self, css_selector):
         """Utility generica per cliccare qualunque elemento tramite CSS."""
         try:

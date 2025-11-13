@@ -71,7 +71,7 @@ def filter_listings_for_request(rows: List[ListingSummary],
                                 max_mileage: int = 100_000,
                                 required_seller: str = "Privato",
                                 allowed_fuels: list[str] | None = None,
-                                strict: bool = True) -> Tuple[List[ListingSummary], List[Dict]]:
+                                strict: bool = True) -> Tuple[List[ListingSummary]]:
     """Split into valid and rejected with reasons."""
     valids: List[ListingSummary] = []
     rejected: List[Dict] = []
@@ -85,4 +85,9 @@ def filter_listings_for_request(rows: List[ListingSummary],
             valids.append(ls)
         else:
             rejected.append({"listing_id": ls.listing_id, "reasons": why, "title": ls.title})
-    return valids, rejected
+
+    # Log (or print) rejected items with reasons
+    for r in rejected:
+        print(f"[SKIP] {r['listing_id']}: {', '.join(r['reasons'])}  | {r.get('title', '')}")
+
+    return valids
