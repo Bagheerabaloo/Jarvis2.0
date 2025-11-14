@@ -50,20 +50,20 @@ class PollingHandler:
         try:
             updates = await self.manager.telegram_bot.get_updates(offset=self.manager.next_id)
             for update in updates:
-                self.__handle_update(update=update.to_dict())
+                await self.__handle_update(update=update.to_dict())
         except Exception as e:
             LOGGER.warning(f"Exception during polling updates: {e}")
 
-    def __handle_update(self, update):
+    async def __handle_update(self, update):
         self.manager.next_id = update["update_id"] + 1
 
         if 'message' in update:
-            self.__handle_message_update(update=update)
+            await self.__handle_message_update(update=update)
 
         elif 'callback_query' in update:
             self.__handle_callback_update(update=update)
 
-    def __handle_message_update(self, update):
+    async def __handle_message_update(self, update):
         message = update['message']
         text = message['text']
         chat_id = message["chat"]["id"]
@@ -71,7 +71,7 @@ class PollingHandler:
         text = text[1:] if is_command else text
 
         if text.upper() in {'TEST_TELEGRAM', 'TEST TELEGRAM', 'TESTTELEGRAM'}:
-            return self.manager.telegram_bot.send_message(chat_id=chat_id, text='TELEGRAM IS WORKING')
+            return await self.manager.telegram_bot.send_message(chat_id=chat_id, text='TELEGRAM IS WORKING')
 
         from_user = message.get("from", {})
         return self.manager.update_stream.put(

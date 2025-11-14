@@ -104,12 +104,12 @@ class TelegramOperations:
         telegram_chat.new_message(telegram_message=telegram_message)
         # TODO: handle functions that are restricted -> they can't be called from here
         try:
-            if telegram_message.message_type == TelegramMessageType.COMMAND:
+            if telegram_message.message_type.name == TelegramMessageType.COMMAND.name:
                 command = telegram_message.text.strip('/')
                 await self.manager.function_handler.execute_command(user_x=user_x, command=command, message=telegram_message, chat=telegram_chat)
-            elif telegram_message.message_type == TelegramMessageType.MESSAGE:
+            elif telegram_message.message_type.name == TelegramMessageType.MESSAGE.name:
                 await self.__handle_message(user_x=user_x, message=telegram_message, chat=telegram_chat)
-            elif telegram_message.message_type == TelegramMessageType.CALLBACK:
+            elif telegram_message.message_type.name == TelegramMessageType.CALLBACK.name:
                 await self.__handle_callback(user_x=user_x, message=telegram_message, chat=telegram_chat)
         except Exception as e:
             LOGGER.error(f"Exception handling event: {e}")
