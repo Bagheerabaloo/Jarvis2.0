@@ -19,7 +19,7 @@ load_dotenv(dotenv_path=env_path)
 # Database separato solo per le metriche
 DB_DSN = "postgresql://admin:admin@localhost:5432/metricsdb"
 
-TELEGRAM_BOT_TOKEN = os.getenv("DATABASE_URL")
+TELEGRAM_BOT_TOKEN = os.getenv("QUOTES_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ALERT_THRESHOLD =float(os.getenv("ALERT_TEMP_THRESHOLD"))
 
