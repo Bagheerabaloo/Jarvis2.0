@@ -13,7 +13,7 @@ from telegram import Bot
 INTERVAL_SECONDS = 30  # ogni quanti secondi salvare la temperatura
 ALERT_INTERVAL_SECONDS = 60     # ogni quanto tempo rimandare l'alert se resta sopra soglia
 
-env_path = Path(__file__).resolve().parent / ".env"
+env_path = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
 # Database separato solo per le metriche
