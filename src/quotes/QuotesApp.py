@@ -7,13 +7,13 @@ from threading import Timer
 from random import choice, shuffle
 from typing import List, Type
 
-from common.telegram_manager.TelegramUser import TelegramUser
-from common.telegram_manager.TelegramChat import TelegramChat
-from common.telegram_manager.TelegramMessage import TelegramMessage
-from common.telegram_manager.telegram_manager import TelegramManager, LOGGER
+from src.common.telegram_manager.TelegramUser import TelegramUser
+from src.common.telegram_manager.TelegramChat import TelegramChat
+from src.common.telegram_manager.TelegramMessage import TelegramMessage
+from src.common.telegram_manager.telegram_manager import TelegramManager, LOGGER
 
-from common.functions.Function import Function
-from common.tools import to_int, timestamp2date, build_eta
+from src.common.functions.Function import Function
+from src.common.tools.library import to_int, timestamp2date, build_eta, safe_execute
 
 from quotes.classes.QuotesUser import QuotesUser
 from quotes.classes.QuotesPostgreManager import QuotesPostgreManager
@@ -31,6 +31,12 @@ class QuotesApp(TelegramManager):
     def __post_init__(self):
         super().__post_init__()
         self.quotes_users = self.postgre_manager.get_quotes_users()
+
+        # __ print quotes users __
+        print('\n####### Quotes Users ########')
+        for user in self.quotes_users:
+            print(f"{user.telegram_id} | {user.name} | Admin: {user.is_admin} | Daily Quotes: {user.daily_quotes} | Daily Book: {user.daily_book}")
+        print('###############################################################\n')
 
         # __ init asyncio loop __
         try:
@@ -176,11 +182,15 @@ class QuotesApp(TelegramManager):
                 chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
                 message = self._build_new_telegram_message(chat=chat, text='dailyQuote')
                 settings = {"text": text}
-                await self.execute_command(user_x=user,
-                                           command=message.text,
-                                           message=message,
-                                           chat=chat,
-                                           initial_settings=settings)
+                safe_execute(
+                    None,
+                    await self.execute_command(
+                        user_x=user,
+                        command=message.text,
+                        message=message,
+                        chat=chat,
+                        initial_settings=settings)
+                )
 
             await asyncio.sleep(0.2)
         print(f"Sending daily quotes completed at {timestamp2date(time())}")
