@@ -33,10 +33,11 @@ class QuotesApp(TelegramManager):
         self.quotes_users = self.postgre_manager.get_quotes_users()
 
         # __ print quotes users __
-        print('\n####### Quotes Users ########')
+        print('\n####################################### Quotes Users ########################################')
+        fmt = "{:<11} | {:<20} | Admin: {:<5} | Daily Quotes: {:<5} | Daily Book: {:<5}"
         for user in self.quotes_users:
-            print(f"{user.telegram_id} | {user.name} | Admin: {user.is_admin} | Daily Quotes: {user.daily_quotes} | Daily Book: {user.daily_book}")
-        print('###############################################################\n')
+            print(fmt.format(user.telegram_id, user.name, user.is_admin, user.daily_quotes, user.daily_book))
+        print('#############################################################################################\n')
 
         # __ init asyncio loop __
         try:
@@ -146,6 +147,7 @@ class QuotesApp(TelegramManager):
     """ ###### ROUTINES ##### """
     def __init_quote_timer(self):
         eta = build_eta(target_hour=9, target_minute=00)
+        eta = 30
 
         print('Daily Quote set in ' + str(to_int(eta/3600)) + 'h:' + str(to_int((eta % 3600)/60)) + 'm:' + str(to_int(((eta % 3600) % 60))) + 's:')
 
@@ -182,15 +184,15 @@ class QuotesApp(TelegramManager):
                 chat = self.get_chat_from_telegram_id(telegram_id=user.telegram_id)
                 message = self._build_new_telegram_message(chat=chat, text='dailyQuote')
                 settings = {"text": text}
-                safe_execute(
-                    None,
+                try:
                     await self.execute_command(
                         user_x=user,
                         command=message.text,
                         message=message,
                         chat=chat,
                         initial_settings=settings)
-                )
+                except:
+                    LOGGER.error(f"Error sending daily quote to user {user.telegram_id}", exc_info=True)
 
             await asyncio.sleep(0.2)
         print(f"Sending daily quotes completed at {timestamp2date(time())}")

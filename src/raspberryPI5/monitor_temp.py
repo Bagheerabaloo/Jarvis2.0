@@ -10,7 +10,7 @@ from telegram import Bot
 
 
 # ---- CONFIGURAZIONE ----
-INTERVAL_SECONDS = 30  # ogni quanti secondi salvare la temperatura
+MIN_INTERVAL_SECONDS = 15       # ogni quanti secondi salvare la temperatura
 ALERT_INTERVAL_SECONDS = 60     # ogni quanto tempo rimandare l'alert se resta sopra soglia
 
 env_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -69,7 +69,7 @@ def send_telegram_alert(temp_c: float):
 
 
 def main():
-    print(f"📈 Inizio monitoraggio temperatura ogni {INTERVAL_SECONDS} secondi...")
+    print(f"📈 Inizio monitoraggio temperatura ogni {MIN_INTERVAL_SECONDS} secondi...")
     conn = psycopg2.connect(DB_DSN)
     conn.autocommit = True
     cur = conn.cursor()
@@ -79,6 +79,7 @@ def main():
 
     try:
         while True:
+            additional_time = 0
             try:
                 temp_c = read_temp_vcgencmd()
                 cur.execute(
@@ -87,11 +88,18 @@ def main():
                 )
                 print(f"Salvato: {temp_c:.2f} °C")
 
+                if temp_c < 50:
+                    additional_time = 90
+                elif temp_c < 60:
+                    additional_time = 30
+                elif temp_c < 70:
+                    additional_time = 15
+
                 now = time.time()
 
                 # Logica alert Telegram
                 if temp_c >= ALERT_THRESHOLD:
-                    # sopra soglia
+                    # above threshold
                     if (last_alert_time is None) or (
                         now - last_alert_time >= ALERT_INTERVAL_SECONDS
                     ):
@@ -99,7 +107,7 @@ def main():
                         last_alert_time = now
                     above_threshold = True
                 else:
-                    # sotto soglia: reset alert
+                    # below threshold: reset alert
                     if above_threshold:
                         print("Temperatura tornata sotto soglia, smetto di inviare alert.")
                     above_threshold = False
@@ -108,7 +116,7 @@ def main():
             except Exception as e:
                 print("Errore durante la lettura/inserimento:", e)
 
-            time.sleep(INTERVAL_SECONDS)
+            time.sleep(MIN_INTERVAL_SECONDS + additional_time)
     finally:
         cur.close()
         conn.close()
