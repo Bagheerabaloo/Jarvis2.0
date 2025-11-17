@@ -147,7 +147,6 @@ class QuotesApp(TelegramManager):
     """ ###### ROUTINES ##### """
     def __init_quote_timer(self):
         eta = build_eta(target_hour=9, target_minute=00)
-        eta = 30
 
         print('Daily Quote set in ' + str(to_int(eta/3600)) + 'h:' + str(to_int((eta % 3600)/60)) + 'm:' + str(to_int(((eta % 3600) % 60))) + 's:')
 

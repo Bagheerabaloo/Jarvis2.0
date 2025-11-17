@@ -48,6 +48,7 @@ MAX_MILEAGE_KM = "100.000"
 PRICE_MAX = 9_000
 MILEAGE_MAX = 100_000
 REQUIRED_SELLER = "Privato"
+FORCE_RUN = True
 
 FILTER = True
 SEND_WITHDRAWN_ALERTS = False  # whether to notify also about withdrawn listings
@@ -1070,12 +1071,13 @@ async def main():
     admin_info, telegram_bot = set_up_telegram_bot(keys=keys)
 
     counter = 0
+    force_run = FORCE_RUN
 
     app = AutoScout(browser=brwsr, headless=True, sslmode='disable')
     while True:
         hour = datetime.now().hour
         bool_ = 9 <= hour < 24
-        if not bool_:
+        if not bool_ and not force_run:
             print("⏸ Pausa notturna: nessuna esecuzione tra le 00:00 e le 09:00")
             if counter == 0:
                 await app.send_end_of_day_summary(telegram_bot, admin_info)
@@ -1102,6 +1104,7 @@ async def main():
         finally:
             app.close_driver()
 
+        force_run = False
         sleep(30 * 60)  # wait 30 minutes before next run
 
 
