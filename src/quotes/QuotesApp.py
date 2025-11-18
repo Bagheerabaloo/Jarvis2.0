@@ -148,15 +148,26 @@ class QuotesApp(TelegramManager):
     def __init_quote_timer(self):
         eta = build_eta(target_hour=9, target_minute=00)
 
-        print('Daily Quote set in ' + str(to_int(eta/3600)) + 'h:' + str(to_int((eta % 3600)/60)) + 'm:' + str(to_int(((eta % 3600) % 60))) + 's:')
+        # __ first schedule: from now to the next 09:00 __
+        self.__schedule_quote_timer(eta)
+        self.daily_quote = True
 
-        self.quote_timer = Timer(eta, self.__asyncio_daily_quote)
+    def __schedule_quote_timer(self, delay: int):
+        """Schedule next daily quote in `delay` seconds."""
+        print('Daily Quote set in ' +
+              str(to_int(delay/3600)) + 'h:' +
+              str(to_int((delay % 3600)/60)) + 'm:' +
+              str(to_int(((delay % 3600) % 60))) + 's:')
+        self.quote_timer = Timer(delay, self.__asyncio_daily_quote)
         self.quote_timer.name = 'Daily Quote'
         self.quote_timer.start()
-        self.daily_quote = True
-        # self.quotes_settings['daily_quote'] = True
 
     def __asyncio_daily_quote(self):
+
+        # __ immediately re-arm the timer for the next day (+24h)
+        eta = build_eta(target_hour=9, target_minute=00)
+        self.__schedule_quote_timer(eta)
+
         if self.loop.is_closed():
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
@@ -200,18 +211,29 @@ class QuotesApp(TelegramManager):
         eta_1 = build_eta(target_hour=12, target_minute=00)
         eta_2 = build_eta(target_hour=18, target_minute=00)
 
-        print('Next Note 1 set in ' + str(to_int(eta_1/3600)) + 'h:' + str(to_int((eta_1 % 3600)/60)) + 'm:' + str(to_int(((eta_1 % 3600) % 60))) + 's:')
-        print('Next Note 2 set in ' + str(to_int(eta_2/3600)) + 'h:' + str(to_int((eta_2 % 3600)/60)) + 'm:' + str(to_int(((eta_2 % 3600) % 60))) + 's:')
+        # First schedule for the two daily slots (12:00 and 18:00)
+        self.__schedule_book_timer(slot=1, delay=eta_1)
+        self.__schedule_book_timer(slot=2, delay=eta_2)
 
-        self.note_timer_eta_1 = Timer(eta_1, self.__asyncio_daily_book)
-        self.note_timer_eta_1.name = 'Next Note 1'
-        self.note_timer_eta_1.start()
+    def __schedule_book_timer(self, slot: int, delay: int):
+        """Schedule next daily book note for a given slot (1 or 2)."""
+        print(f'Next Note {slot} set in ' + str(to_int(delay/3600)) + 'h:' + str(to_int((delay % 3600)/60)) + 'm:' + str(to_int(((delay % 3600) % 60))) + 's:')
 
-        self.note_timer_eta_2 = Timer(eta_2, self.__asyncio_daily_book)
-        self.note_timer_eta_2.name = 'Next Note 2'
-        self.note_timer_eta_2.start()
+        timer = Timer(delay, self.__asyncio_daily_book, args=(slot,))
+        timer.name = f'Next Note {slot}'
+        timer.start()
 
-    def __asyncio_daily_book(self):
+        # Keep references so that close() can cancel them
+        if slot == 1:
+            self.note_timer_eta_1 = timer
+        else:
+            self.note_timer_eta_2 = timer
+
+    def __asyncio_daily_book(self, slot: int):
+        # Re-arm this specific slot for the next day (+24h)
+        eta = build_eta(target_hour=12 if slot == 1 else 18, target_minute=00)
+        self.__schedule_book_timer(slot=slot, delay=24 * 60 * 60)
+
         if self.loop.is_closed():
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
