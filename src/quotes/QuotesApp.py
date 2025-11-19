@@ -19,6 +19,9 @@ from quotes.classes.QuotesUser import QuotesUser
 from quotes.classes.QuotesPostgreManager import QuotesPostgreManager
 from quotes.classes.Note import Note
 
+DAILY_QUOTE_TARGET_HOUR = 10
+DAILY_QUOTE_TARGET_MINUTE = 24
+
 
 @dataclass
 class QuotesApp(TelegramManager):
@@ -146,7 +149,7 @@ class QuotesApp(TelegramManager):
 
     """ ###### ROUTINES ##### """
     def __init_quote_timer(self):
-        eta = build_eta(target_hour=9, target_minute=00)
+        eta = build_eta(target_hour=DAILY_QUOTE_TARGET_HOUR, target_minute=DAILY_QUOTE_TARGET_MINUTE)
 
         # __ first schedule: from now to the next 09:00 __
         self.__schedule_quote_timer(eta)
@@ -163,11 +166,6 @@ class QuotesApp(TelegramManager):
         self.quote_timer.start()
 
     def __asyncio_daily_quote(self):
-
-        # __ immediately re-arm the timer for the next day (+24h)
-        eta = build_eta(target_hour=9, target_minute=00)
-        self.__schedule_quote_timer(eta)
-
         if self.loop.is_closed():
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
@@ -177,6 +175,10 @@ class QuotesApp(TelegramManager):
             self.loop.call_soon_threadsafe(asyncio.create_task, self.__daily_quote())
         else:
             self.loop.run_until_complete(self.__daily_quote())
+
+        # __ re-arm the timer for the next day (+24h)
+        eta = build_eta(target_hour=DAILY_QUOTE_TARGET_HOUR, target_minute=DAILY_QUOTE_TARGET_MINUTE, min_eta=60*60*10)
+        self.__schedule_quote_timer(eta)
 
     async def __daily_quote(self):
         quotes = self.postgre_manager.get_last_random_quotes()
@@ -230,10 +232,6 @@ class QuotesApp(TelegramManager):
             self.note_timer_eta_2 = timer
 
     def __asyncio_daily_book(self, slot: int):
-        # Re-arm this specific slot for the next day (+24h)
-        eta = build_eta(target_hour=12 if slot == 1 else 18, target_minute=00)
-        self.__schedule_book_timer(slot=slot, delay=24 * 60 * 60)
-
         if self.loop.is_closed():
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
@@ -243,6 +241,10 @@ class QuotesApp(TelegramManager):
             self.loop.call_soon_threadsafe(asyncio.create_task, self.__daily_book())
         else:
             self.loop.run_until_complete(self.__daily_book())
+
+        # Re-arm this specific slot for the next day (+24h)
+        eta = build_eta(target_hour=12 if slot == 1 else 18, target_minute=00, min_eta=60*60*2)
+        self.__schedule_book_timer(slot=slot, delay=eta)
 
     async def __daily_book(self):
         daily_notes = self.postgre_manager.get_daily_notes()

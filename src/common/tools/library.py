@@ -369,12 +369,12 @@ def now(frmt='%Y-%m-%d %H.%M.%S'):
     return frmt.format(dt)
 
 
-def build_eta(target_hour, target_minute=0):
+def build_eta(target_hour, target_minute=0, min_eta=0):
     dt = datetime.now(pytz.timezone('Europe/Rome'))
     eta = ((target_hour - dt.hour - 1) * 60 * 60) + ((60 + target_minute - dt.minute - 1) * 60) + (61 - dt.second)
     if eta < 0:
         eta += 24 * 60 * 60
-    return eta
+    return min_eta if eta < min_eta else eta
 
 # _____ File read/write _____ #
 
