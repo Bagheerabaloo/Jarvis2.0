@@ -19,8 +19,8 @@ from quotes.classes.QuotesUser import QuotesUser
 from quotes.classes.QuotesPostgreManager import QuotesPostgreManager
 from quotes.classes.Note import Note
 
-DAILY_QUOTE_TARGET_HOUR = 10
-DAILY_QUOTE_TARGET_MINUTE = 24
+DAILY_QUOTE_TARGET_HOUR = 9
+DAILY_QUOTE_TARGET_MINUTE = 00
 
 
 @dataclass
