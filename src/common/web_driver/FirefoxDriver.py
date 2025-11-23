@@ -54,11 +54,6 @@ class FirefoxDriver(WebDriver):
                 if profile_path:
                     self.options.profile = profile_path
 
-            # Flag extra, tipici per headless su Linux
-            self.options.add_argument("-remote-debugging-port=9224")
-            self.options.add_argument("-disable-gpu")
-            self.options.add_argument("-no-sandbox")
-
             # Service per geckodriver (path dal .env, oppure dal PATH se non settato)
             gecko_path = os.environ.get("GECKODRIVER_PATH", "geckodriver")
             self.service = FirefoxService(executable_path=gecko_path)

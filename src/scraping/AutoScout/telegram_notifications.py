@@ -47,7 +47,6 @@ def set_up_telegram_bot(keys, is_raspberry) -> Tuple[List[dict], TelegramBot]:
         admins = [config_manager.get_admin(database_key=x) for x in keys]
 
     print(f"Telegram bot set with users: {[a.get('name') for a in admins]}")
-    print(token)
     telegram_bot = TelegramBot(token=token)
     return admins, telegram_bot
 
