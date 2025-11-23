@@ -133,6 +133,47 @@ class TickerUpdaterStatus(Enum):
     CANDLE_MINUTE_1 = "candle_minute_1"
 
 
+# Base TTLs
+TTL = {
+    TickerUpdaterStatus.BALANCE_SHEET_ANNUAL: timedelta(days=180),
+    TickerUpdaterStatus.BALANCE_SHEET_QUARTERLY: timedelta(days=14),
+    TickerUpdaterStatus.CASH_FLOW_ANNUAL: timedelta(days=180),
+    TickerUpdaterStatus.CASH_FLOW_QUARTERLY: timedelta(days=14),
+    TickerUpdaterStatus.CASH_FLOW_TRAILING: timedelta(days=14),
+    TickerUpdaterStatus.FINANCIALS_ANNUAL: timedelta(days=180),
+    TickerUpdaterStatus.FINANCIALS_QUARTERLY: timedelta(days=14),
+    TickerUpdaterStatus.FINANCIALS_TRAILING: timedelta(days=14),
+    TickerUpdaterStatus.ACTIONS: timedelta(days=7),
+    TickerUpdaterStatus.CALENDAR: timedelta(days=7),
+    TickerUpdaterStatus.EARNINGS_DATES: timedelta(days=7),
+    TickerUpdaterStatus.EARNINGS_HISTORY: timedelta(days=30),
+    TickerUpdaterStatus.INSIDER_PURCHASES: timedelta(days=1),
+    TickerUpdaterStatus.INSIDER_ROSTER_HOLDERS: timedelta(days=30),
+    TickerUpdaterStatus.INSIDER_TRANSACTIONS: timedelta(days=1),
+    TickerUpdaterStatus.INSTITUTIONAL_HOLDERS: timedelta(days=30),
+    TickerUpdaterStatus.MAJOR_HOLDERS: timedelta(days=30),
+    TickerUpdaterStatus.MUTUAL_FUND_HOLDERS: timedelta(days=30),
+    TickerUpdaterStatus.RECOMMENDATIONS: timedelta(days=1),
+    TickerUpdaterStatus.UPGRADES_DOWNGRADES: timedelta(days=1),
+    TickerUpdaterStatus.STOCK_SPLITS: timedelta(days=30),
+    TickerUpdaterStatus.SHARES_FULL: timedelta(days=30),
+    TickerUpdaterStatus.INFO_COMPANY_ADDRESS: timedelta(days=180),
+    TickerUpdaterStatus.INFO_TARGET_PRICE_AND_RECOMMENDATION: timedelta(days=1),
+    TickerUpdaterStatus.INFO_GOVERNANCE: timedelta(days=180),
+    TickerUpdaterStatus.INFO_CASH_AND_FINANCIAL_RATIOS: timedelta(days=14),
+    TickerUpdaterStatus.INFO_MARKET_AND_FINANCIAL_METRICS: timedelta(days=1),
+    TickerUpdaterStatus.INFO_GENERAL_STOCK: timedelta(days=30),
+    TickerUpdaterStatus.INFO_TRADING_SESSION: timedelta(days=1),
+    TickerUpdaterStatus.SECTOR_INDUSTRY_HISTORY: timedelta(days=90),
+}
+
+def should_run(last_run: datetime | None, status: TickerUpdaterStatus, now: datetime) -> bool:
+    """Return True if TTL expired for the given status."""
+    if last_run is None:
+        return True
+    return now - last_run >= TTL[status]
+
+
 @dataclass
 class TickerUpdater:
     def __init__(self, session: sess.Session, symbol: str, has_yf_errors: bool = False):

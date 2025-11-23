@@ -19,7 +19,7 @@ from quotes.classes.QuotesUser import QuotesUser
 from quotes.classes.QuotesPostgreManager import QuotesPostgreManager
 from quotes.classes.Note import Note
 
-DAILY_QUOTE_TARGET_HOUR = 9
+DAILY_QUOTE_TARGET_HOUR = 9  # TODO: configure on env or postgres
 DAILY_QUOTE_TARGET_MINUTE = 00
 
 

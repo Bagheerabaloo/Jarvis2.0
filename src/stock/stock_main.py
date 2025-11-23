@@ -102,10 +102,22 @@ def set_up_telegram_bot():
     return admin_info, telegram_bot
 
 
-def select_tickers(session: sess.Session, limit: int = 3000, add_sp500: bool = True):
+def select_tickers(session: sess.Session,
+                   limit: int = 3000,
+                   add_sp500: bool = True,
+                   only_sp500: bool = False,
+                   only_yf_error: bool = False,
+                   ):
+    if only_yf_error:  # return only yfinance error tickers
+        return select_only_yfinance_error_tickers(session=session, limit=limit)
+
+    if only_sp500:  # get only sp500 tickers
+        return select_only_sp500_tickers(session=session)
+
     # __ get tickers __
-    queries_1 = Queries(session, remove_yfinance_error_tickers=True)
-    queries_2 = Queries(session, remove_yfinance_error_tickers=True)
+    is_weekday = 0 < datetime.now().weekday() < 6
+    remove_yfinance_error_tickers = True if is_weekday else False
+    queries = Queries(session, remove_yfinance_error_tickers=remove_yfinance_error_tickers)
 
     # symbols = tl.tickers_sp500_from_wikipedia()
     # symbols = tl.get_indexes_tickers()
@@ -114,14 +126,14 @@ def select_tickers(session: sess.Session, limit: int = 3000, add_sp500: bool = T
     # symbols = tl.get_tickers_with_candles_not_updated_from_days(days=5)
     # etf_symbols = tl.get_etf_tickers()
 
-    sp500_symbols = queries_1.get_sp500_tickers()
+    sp500_symbols = queries.get_sp500_tickers()
     symbols = sorted(list(set(
         []
-        + queries_1.get_tickers_not_updated_from_days(days=5)
-        + queries_1.get_tickers_with_day_candles_not_updated_from_days(days=5)
+        + queries.get_tickers_not_updated_from_days(days=5)
+        + queries.get_tickers_with_day_candles_not_updated_from_days(days=5)
     )))
 
-    if add_sp500 and len(symbols) < 2495 and 0 < datetime.now().weekday() < 6:  # 1-5 are Monday to Friday
+    if add_sp500 and len(symbols) < 2495 and is_weekday:  # 1-5 are Monday to Friday
         LOGGER.info("Adding S&P 500 tickers to the list...")
         symbols = sorted(list(set(
             symbols
@@ -131,25 +143,27 @@ def select_tickers(session: sess.Session, limit: int = 3000, add_sp500: bool = T
     # __ remove tickers already present in DB __
     # symbols = tl.remove_tickers_present_in_db(tickers=symbols)
 
-    # __ print the number of tickers __
-    LOGGER.info(f"{'Total tickers:'.ljust(25)} {len(symbols)}")
-
-    # __ limit the number of tickers __
+    LOGGER.info(f"{'Total tickers before limit:'.ljust(25)} {len(symbols)}")
     symbols = symbols[:limit]
-
     LOGGER.info(f"{'Tickers after limit:'.ljust(25)} {len(symbols)}")
 
     return symbols
 
 
 def select_only_yfinance_error_tickers(session: sess.Session, limit: int = 3000):
-    # __ get tickers __
     queries = Queries(session)
     symbols = queries.get_yfinance_error_tickers()
+    LOGGER.info(f"{'Total tickers before limit:'.ljust(25)} {len(symbols)}")
+    symbols = symbols[:limit]
+    LOGGER.info(f"{'Tickers after limit:'.ljust(25)} {len(symbols)}")
+    return symbols
 
-    # __ print the number of tickers __
-    LOGGER.info(f"{'Total tickers:'.ljust(25)} {len(symbols)}")
-
+def select_only_sp500_tickers(session: sess.Session, limit: int = 3000):
+    queries = Queries(session, remove_yfinance_error_tickers=False)
+    symbols = queries.get_sp500_tickers()
+    LOGGER.info(f"{'Total tickers before limit:'.ljust(25)} {len(symbols)}")
+    symbols = symbols[:limit]
+    LOGGER.info(f"{'Tickers after limit:'.ljust(25)} {len(symbols)}")
     return symbols
 
 
@@ -159,30 +173,23 @@ def main(process_name_: str = None,
          only_sp500: bool = False,
          only_yf_error: bool = False,
          refresh_materialized: bool = True):
+
+    LOGGER.info(process_name_)
+
     # __ sqlAlchemy __ create new session
     session = session_local()
 
     # __ set up telegram bot __
     admin_info, telegram_bot = set_up_telegram_bot()
 
-    if only_yf_error:
-        # __ get only yfinance error tickers __
-        symbols = select_only_yfinance_error_tickers(session=session, limit=limit)
-    elif only_sp500:
-        # __ get only sp500 tickers __
-        queries = Queries(session, remove_yfinance_error_tickers=False)
-        symbols = queries.get_sp500_tickers()
-        LOGGER.info(f"{'Total tickers:'.ljust(25)} {len(symbols)}")
-    else:
-        symbols = select_tickers(session=session, limit=limit, add_sp500=add_sp500)
-
-    LOGGER.info(process_name_)
+    # __ get tickers __
+    symbols = select_tickers(session=session, limit=limit, add_sp500=add_sp500, only_sp500=only_sp500, only_yf_error=only_yf_error)
 
     # __ get list of invalid symbols __
     queries = Queries(session)
     symbols_with_errors = queries.get_yfinance_error_tickers()
 
-    # symbols=['MSFT']
+    # symbols=['TSM']
 
     stock_updater = StockUpdater(session=session, symbols_with_errors=symbols_with_errors)
     results = stock_updater.update_all_tickers(symbols=symbols)
@@ -270,6 +277,6 @@ if __name__ == '__main__':
     if process_name == 'scheduled':
         main(process_name)
     else:
-        main(process_name, limit=1000, only_sp500=True, add_sp500=True, only_yf_error=False, refresh_materialized=False)
+        main(process_name, limit=1000, only_sp500=True, add_sp500=True, only_yf_error=True, refresh_materialized=True)
         # update_only_candles(process_name)
     # plot_candles()

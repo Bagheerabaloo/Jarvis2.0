@@ -1,45 +1,24 @@
-import json
-import requests
-import io
-import datetime
 import re
-import io
-import requests
-
-import asyncio
-from math import ceil
+import platform
+import os
 
 from threading import Thread, Lock
-from math import ceil
 from enum import Enum
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta, date
-from time import time, sleep
-from dataclasses import dataclass
-from copy import deepcopy
-from typing import Union
 from typing import List, Dict, Any
 from sqlalchemy import select
-import sqlalchemy as sa
 from datetime import datetime, timezone
+from typing import Tuple, List, Dict, Optional
 
-
-from src.common.tools.library import *
 from src.common.web_driver.ChromeDriver import ChromeDriver
 from src.common.web_driver.FirefoxDriver import FirefoxDriver
 
 from src.scraping.AutoScout.db.database import session_local
-from src.scraping.AutoScout.db.models import ListingSummary, ListingDetail, ListingDistance
-from src.scraping.AutoScout.validators_autoscout import filter_listings_for_request
 from src.scraping.AutoScout.upsert_precise_pg import upsert_listings_summary_precise
 from src.scraping.AutoScout.upsert_details_pg import upsert_listing_detail
 from src.scraping.AutoScout.geo_utils import compute_air_distance_for_rows
 from src.scraping.AutoScout.telegram_notifications import *
-
-from src.common.telegram_manager.telegram_manager import TelegramBot
-from src.common.file_manager.FileManager import FileManager
-from typing import Tuple, List, Dict, Optional
-
+from src.scraping.AutoScout.db.models import ListingSummary, ListingDetail, ListingDistance
+from src.scraping.AutoScout.validators_autoscout import filter_listings_for_request
 
 
 MAX_PRICE = "9.000 €"
@@ -49,9 +28,44 @@ PRICE_MAX = 9_000
 MILEAGE_MAX = 100_000
 REQUIRED_SELLER = "Privato"
 FORCE_RUN = True
+HEADLESS = False
 
 FILTER = True
 SEND_WITHDRAWN_ALERTS = False  # whether to notify also about withdrawn listings
+
+from dotenv import load_dotenv
+load_dotenv()
+
+def running_on_raspberry() -> bool:
+    """
+    Ritorna True se stiamo girando su Raspberry Pi (Linux),
+    False altrimenti.
+
+    Usa prima una variabile d'ambiente RUN_ENV (se presente),
+    altrimenti auto-detect.
+    """
+    # 1) Override manuale via env (più forte di tutto)
+    run_env = os.getenv("RUN_ENV")
+    if run_env == "raspberry":
+        return True
+    if run_env == "pc":
+        return False
+
+    # 2) Auto-detect: se non siamo su Linux, sicuramente non è Raspberry
+    if platform.system() != "Linux":
+        return False
+
+    # 3) Su Linux, controlliamo il model del device
+    try:
+        with open("/sys/firmware/devicetree/base/model", "r") as f:
+            model = f.read()
+        return "Raspberry Pi" in model
+    except FileNotFoundError:
+        return False
+
+
+IS_RASPBERRY = running_on_raspberry()
+print("Running on Raspberry:", IS_RASPBERRY)
 
 
 class Browser(str, Enum):
@@ -78,7 +92,13 @@ class AutoScout:
             self.driver = ChromeDriver()
             self.driver.init_driver()
         elif self.browser == Browser.firefox:
-            self.driver = FirefoxDriver(headless=self.headless, selenium_profile=True)
+            # Su Linux (Raspberry) usiamo os_environ=True,
+            # su Windows restiamo con os_environ=False.
+            self.driver = FirefoxDriver(
+                os_environ=IS_RASPBERRY,      # True su Raspberry, False su Windows
+                headless=self.headless,
+                selenium_profile=True,    # profilo Selenium su entrambi
+            )
             self.driver.init_driver()
         else:
             self.driver = None
@@ -1073,7 +1093,7 @@ async def main():
     counter = 0
     force_run = FORCE_RUN
 
-    app = AutoScout(browser=brwsr, headless=True, sslmode='disable')
+    app = AutoScout(browser=brwsr, headless=HEADLESS, sslmode='disable')
     while True:
         hour = datetime.now().hour
         bool_ = 9 <= hour < 24

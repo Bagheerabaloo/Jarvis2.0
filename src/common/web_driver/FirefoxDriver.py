@@ -1,19 +1,26 @@
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
+from selenium.webdriver.firefox.service import Service as FirefoxService
+# from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
 from time import sleep
 import os
 from src.common.web_driver.Webdriver import WebDriver
 
 
 class FirefoxDriver(WebDriver):
-    def __init__(self, os_environ: bool = False, max_wait: int = 10, headless: bool = False, selenium_profile: bool = False):
+    def __init__(
+            self,
+            os_environ: bool = False,
+            max_wait: int = 10,
+            headless: bool = False,
+            selenium_profile: bool = False
+    ):
         super().__init__(os_environ=os_environ, max_wait=max_wait)
 
         self.selenium_profile = selenium_profile  # if True, uses Firefox to avoid CloudFare blocks
-
-        # ___ Set Firefox options___ #
         self.options = Options()
+        self.service = None
+        self.headless = headless
         self._init_options(headless=headless, selenium_profile=selenium_profile)
 
         self.driver = None
@@ -22,34 +29,76 @@ class FirefoxDriver(WebDriver):
 
     # _____ Init/Close driver ______
     def _init_options(self, headless: bool, selenium_profile: bool = False):
+        """
+        Configura Firefox Options (binary, profilo, headless, flag vari).
+        """
+
+        # --- Headless ---
         if headless or self.os_environ:
             self.options.headless = True
+            self.options.add_argument("-headless")
 
-        if selenium_profile and not self.os_environ:
-            profile_path = r'C:\Users\Vale\AppData\Roaming\Mozilla\Firefox\Profiles\bym01i3w.SeleniumFF'
-            self.options.profile = profile_path
-            if headless or self.os_environ:
-                self.options.headless = True
-                self.options.add_argument("-headless")
-            # self.options.set_preference("intl.accept_languages", "it-IT, it, en-US, en")
+        # --- Binary: SOLO via options.binary_location ---
+        if self.os_environ:
+            # ===============================
+            #   RASPBERRY / LINUX
+            # ===============================
+            # Binario di Firefox dal .env
+            firefox_bin = os.environ.get("FIREFOX_BIN")
+            if firefox_bin:
+                self.options.binary_location = firefox_bin
 
-        if not self.os_environ:
-            self.options.binary_location = r'C:\Program Files\Mozilla Firefox\firefox.exe'
-            self.executable_path = 'C:/Users/Vale/Downloads/geckodriver-v0.32.2-win32/geckodriver.exe'
-        else:
-            self.binary = FirefoxBinary(os.environ.get('FIREFOX_BIN'))
-            self.executable_path = os.environ.get('GECKODRIVER_PATH')
+            # Profilo Selenium copiato dal PC
+            if selenium_profile:
+                profile_path = os.environ.get("SELENIUM_FIREFOX_PROFILE_RPI")
+                if profile_path:
+                    self.options.profile = profile_path
+
+            # Flag extra, tipici per headless su Linux
             self.options.add_argument("-remote-debugging-port=9224")
             self.options.add_argument("-disable-gpu")
             self.options.add_argument("-no-sandbox")
 
-    def __init_firefox_driver(self, maximize_window: bool = False):
-        if self.os_environ:
-            self.driver = webdriver.Firefox(firefox_binary=self.binary, executable_path=self.executable_path, options=self.options)
+            # Service per geckodriver (path dal .env, oppure dal PATH se non settato)
+            gecko_path = os.environ.get("GECKODRIVER_PATH", "geckodriver")
+            self.service = FirefoxService(executable_path=gecko_path)
+
         else:
-            # self.driver = webdriver.Firefox(executable_path=self.executable_path, options=self.options)
-            self.driver = webdriver.Firefox(options=self.options)  # Selenium (Chrome) driver with the options defined
-            if maximize_window:
+            # ===============================
+            #   WINDOWS
+            # ===============================
+            # Firefox bin (override da env se serve)
+            firefox_bin = os.environ.get(
+                "FIREFOX_BIN_WIN",
+                r"C:\Program Files\Mozilla Firefox\firefox.exe",
+            )
+            self.options.binary_location = firefox_bin
+
+            # Profilo Selenium  (override da env se serve)
+            if selenium_profile:
+                profile_path = os.environ.get(
+                    "SELENIUM_FIREFOX_PROFILE_WIN",
+                    r"C:\Users\Vale\AppData\Roaming\Mozilla\Firefox\Profiles\bym01i3w.SeleniumFF",
+                )
+                if profile_path:
+                    self.options.profile = profile_path
+
+            # Su Windows NON usiamo Service
+            self.service = None
+
+    def __init_firefox_driver(self, maximize_window: bool = False):
+        """
+        Crea l'istanza di webdriver.Firefox usando:
+            - executable_path = self.executable_path  (geckodriver)
+            - options = self.options
+        """
+        if self.os_environ:
+            # Raspberry / Linux: usa Service + options
+            self.driver = webdriver.Firefox(service=self.service, options=self.options)
+        else:
+            # Windows: niente Service, solo options (geckodriver trovato via PATH)
+            self.driver = webdriver.Firefox(options=self.options)
+            if maximize_window and not self.headless:
                 self.driver.maximize_window()
             if self.selenium_profile:
                 addon_path = os.path.abspath(r"C:\Users\Vale\PycharmProjects\Jarvis2.0\src\common\web_driver\webdriver_override_ff")

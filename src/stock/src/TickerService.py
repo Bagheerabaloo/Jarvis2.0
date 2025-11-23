@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from collections import Counter
 
 from sqlalchemy.sql import and_
+from sqlalchemy import func
 
 from src.common.tools.library import safe_execute
 from src.stock.src.TickerServiceBase import Ticker, TickerServiceBase
@@ -19,6 +20,23 @@ from src.stock.src.insider_txs_utils import add_state_and_price
 from logger_setup import LOGGER
 
 pd.set_option('future.no_silent_downcasting', True)
+
+
+def db_max_last_update(session, model, **filters):
+    """Return MAX(last_update) for the given table and filters (pure DB read)."""
+    q = session.query(func.max(model.last_update))
+    for col, val in filters.items():
+        q = q.filter(getattr(model, col) == val)
+    return q.scalar()
+
+def age_in_days(last_update, now=None) -> int | None:
+    """Return integer age in days; None if last_update is missing."""
+    if last_update is None:
+        return None
+    if isinstance(last_update, date) and not isinstance(last_update, datetime):
+        last_update = datetime(last_update.year, last_update.month, last_update.day)
+    now = now or datetime.utcnow()
+    return (now - last_update).days
 
 
 @dataclass
@@ -156,8 +174,20 @@ class TickerService(TickerServiceBase):
         """
         Handle the insertion of balance sheet data into the database.
 
+        Run policy:
+          - if last_update is None -> RUN
+          - if age < 2 days -> SKIP
+          - if 2 <= age <= 10 -> RUN
+          - if 10 < age <= threshold -> SKIP
+          - if age > threshold -> RUN
+          threshold = 180 (yearly) | 45 (quarterly)
+
         :param period_type: The period type of the data (e.g., 'annual' or 'quarterly').
         """
+
+        if period_type not in ("yearly", "quarterly"):
+            LOGGER.error(f"{self.ticker.symbol} - Invalid period_type: {period_type}")
+            return None
 
         # switch period_type:
         match period_type:
