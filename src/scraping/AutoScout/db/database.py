@@ -1,12 +1,18 @@
 import logging
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from src.common.file_manager.FileManager import FileManager
 
 # __ init file manager __
-config_manager = FileManager()
-postgre_url = config_manager.get_postgre_url("POSTGRE_URL_LOCAL_AUTOSCOUT")
+if os.environ.get("RUN_ENV", "").lower() == "raspberry":
+    # Raspberry/Linux usa variabili d'ambiente
+    postgre_url = os.environ.get("POSTGRE_URL_LOCAL_AUTOSCOUT")
+else:
+    # PC Windows continua a usare i file config (TXT)
+    config_manager = FileManager()
+    postgre_url = config_manager.get_postgre_url("POSTGRE_URL_LOCAL_AUTOSCOUT")
 
 # Configure SQLAlchemy logging
 # logging.basicConfig()
