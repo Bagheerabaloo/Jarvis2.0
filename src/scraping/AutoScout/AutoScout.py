@@ -28,7 +28,7 @@ PRICE_MAX = 9_000
 MILEAGE_MAX = 100_000
 REQUIRED_SELLER = "Privato"
 FORCE_RUN = True
-HEADLESS = False
+HEADLESS = True
 
 FILTER = True
 SEND_WITHDRAWN_ALERTS = False  # whether to notify also about withdrawn listings
