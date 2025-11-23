@@ -2,6 +2,8 @@ import datetime
 import io
 import requests
 import asyncio
+import os
+import json
 
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -19,12 +21,34 @@ from src.common.file_manager.FileManager import FileManager
 from typing import Tuple, List, Dict, Optional
 
 
-def set_up_telegram_bot(keys) -> Tuple[List[dict], TelegramBot]:
+def set_up_telegram_bot(keys, is_raspberry) -> Tuple[List[dict], TelegramBot]:
     telegram_token_key = "TELEGRAM_TOKEN"
-    config_manager = FileManager()
-    token = config_manager.get_telegram_token(database_key=telegram_token_key)
+
+    if is_raspberry:
+        # --- Raspberry: tutto da variabili d'ambiente ---
+        token = os.environ.get(telegram_token_key)
+        if not token:
+            raise RuntimeError(f"TELEGRAM_TOKEN non trovato nelle variabili d'ambiente.")
+
+        admins: List[dict] = []
+        for env_key in keys:
+            raw = os.environ.get(env_key)
+            if not raw:
+                raise RuntimeError(f"Variabile d'ambiente {env_key} non trovata per admin Telegram.")
+            try:
+                admin = json.loads(raw)
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"Valore non valido in {env_key}: deve essere JSON. Errore: {e}")
+            admins.append(admin)
+    else:
+        # --- PC: usa FileManager come prima ---
+        config_manager = FileManager()
+        token = config_manager.get_telegram_token(database_key=telegram_token_key)
+        admins = [config_manager.get_admin(database_key=x) for x in keys]
+
+    print(f"Telegram bot set with users: {[a.get('name') for a in admins]}")
     telegram_bot = TelegramBot(token=token)
-    return [config_manager.get_admin(database_key=x) for x in keys], telegram_bot
+    return admins, telegram_bot
 
 
 def build_listing_text(ls: ListingSummary, air_km: float | None = None,

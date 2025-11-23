@@ -1088,7 +1088,7 @@ async def main():
 
     # __ set up telegram bot __
     keys = ["ADMIN_INFO", "TELEGRAM_MARINELLA"]
-    admin_info, telegram_bot = set_up_telegram_bot(keys=keys)
+    admin_info, telegram_bot = set_up_telegram_bot(keys=keys, is_raspberry=IS_RASPBERRY)
 
     counter = 0
     force_run = FORCE_RUN
