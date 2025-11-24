@@ -1095,7 +1095,7 @@ async def main():
 
     app = AutoScout(browser=brwsr, headless=HEADLESS, sslmode='disable')
     while True:
-        init_time = datetime.now()
+        init_time = time()
         hour = datetime.now().hour
         bool_ = 9 <= hour < 24
         if not bool_ and not force_run:
@@ -1126,7 +1126,7 @@ async def main():
             app.close_driver()
 
         force_run = False
-        print(f"Elapsed time: {seconds_to_time(datetime.now() - init_time)}")
+        print(f"Elapsed time: {seconds_to_time(time() - init_time)}")
         print("⏱ In attesa della prossima esecuzione...")
         sleep(30 * 60)  # wait 30 minutes before next run
 
