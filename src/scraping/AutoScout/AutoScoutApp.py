@@ -53,7 +53,13 @@ class AutoScoutApp:
         self.loop: asyncio.AbstractEventLoop | None = asyncio.new_event_loop()
         self.loop_task: asyncio.Task | None = None
 
-        self.autoscout = AutoScout(browser=self.browser, headless=HEADLESS, sslmode="disable", stop_event=self.stop_event)
+        self.autoscout = AutoScout(
+            browser=self.browser,
+            headless=HEADLESS,
+            sslmode="disable",
+            stop_event=self.stop_event,
+            is_raspberry=is_raspberry
+        )
 
         # telegram / admin
         keys = CONFIG["telegram"]["keys"]
