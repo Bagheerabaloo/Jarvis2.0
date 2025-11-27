@@ -1,13 +1,13 @@
 import yaml
 from pathlib import Path
 from threading import Thread, Lock, Event
-from src.scraping.AutoScout.set_up_logger import LOGGER
-from src.common.web_driver.Browser import Browser
-from src.scraping.AutoScout.telegram_notifications import *
 
 from dotenv import load_dotenv
 load_dotenv()
 
+from src.scraping.AutoScout.set_up_logger import LOGGER
+from src.common.web_driver.Browser import Browser
+from src.scraping.AutoScout.telegram_notifications import *
 from src.scraping.AutoScout.AutoScout import AutoScout
 
 def load_config() -> dict:
