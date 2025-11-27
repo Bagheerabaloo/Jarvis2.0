@@ -13,6 +13,7 @@ import sqlalchemy as sa
 
 from src.common.tools.library import *
 
+from src.scraping.AutoScout.set_up_logger import LOGGER
 from src.scraping.AutoScout.db.models import ListingSummary, ListingDetail, ListingDistance
 from src.scraping.AutoScout.validators_autoscout import filter_listings_for_request
 
@@ -46,7 +47,7 @@ def set_up_telegram_bot(keys, is_raspberry) -> Tuple[List[dict], TelegramBot]:
         token = config_manager.get_telegram_token(database_key=telegram_token_key)
         admins = [config_manager.get_admin(database_key=x) for x in keys]
 
-    print(f"Telegram bot set with users: {[a.get('name') for a in admins]}")
+    LOGGER.info(f"Telegram bot set with users: {[a.get('name') for a in admins]}")
     telegram_bot = TelegramBot(token=token)
     return admins, telegram_bot
 
@@ -320,7 +321,7 @@ async def _send_batch(valid_rows, telegram_bot, admin_info, dist_by_id, detailed
                     )
                     sent = True
                 except Exception as e:
-                    print(f"Failed to send photo for {ls.listing_id}: {e}")
+                    LOGGER.info(f"Failed to send photo for {ls.listing_id}: {e}")
 
             if not sent:
                 await telegram_bot.send_message(
@@ -337,7 +338,7 @@ async def notify_inserted_listings_via_telegram(valid_rows, telegram_bot, admin_
     if len(valid_rows) == 0:
         return
     elif len(valid_rows) > 50:
-        print(f"Too many new listings ({len(valid_rows)}), skipping Telegram notification.")
+        LOGGER.info(f"Too many new listings ({len(valid_rows)}), skipping Telegram notification.")
         chat_id = next((info["chat"] for info in admin_info if info.get("is_admin")), None)
         # Single run for the tiny batch
         await telegram_bot.send_message(chat_id=chat_id, text=f"", parse_mode="Markdown")

@@ -17,3 +17,4 @@ src/Apps/token.pickle
 /src/common/postgre/db_backup/
 /logs/
 /alembic.ini
+/src/scraping/AutoScout/config_autoscout.yaml

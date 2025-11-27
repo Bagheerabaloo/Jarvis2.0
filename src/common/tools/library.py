@@ -26,6 +26,7 @@ import pytz
 from queue import Queue
 
 
+
 def class_from_args(class_name, arg_dict):
     field_set = {f.name for f in fields(class_name) if f.init}
     filtered_arg_dict = {k: v for k, v in arg_dict.items() if k in field_set}
@@ -33,7 +34,7 @@ def class_from_args(class_name, arg_dict):
 
 
 # __ Running main applications __
-def run_main(app, log_queue: Queue = None):
+def run_main(app, log_queue: Queue = None, logger: logging.Logger = None):
     killer = GracefulKiller()
     closed_by_killer = False
     
@@ -47,7 +48,8 @@ def run_main(app, log_queue: Queue = None):
         # Check for SIGINT signal
         if killer.kill_now:
             # app.logger.info("Received SIGINT signal ...")
-            print("Received SIGINT signal ...")
+            log = "Received SIGINT signal ..."
+            print(log) if not logger else logger.info(log)
             closed_by_killer = True
             app.close()
 
@@ -57,20 +59,23 @@ def run_main(app, log_queue: Queue = None):
         app.close()
 
     # app.logger.info('Exiting main loop')
-    print('Exiting main loop')
+    log = 'Exiting main loop'
+    print(log) if not logger else logger.info(log)
     start = time()
     while len([x for x in threading.enumerate() if not x.daemon]) > 1 and not time_out(start, 10):
         sleep(0.25)
 
     if len([x for x in threading.enumerate() if not x.daemon]) > 1:
         # app.logger.warning('Forcing thread closure')
-        print('Forcing thread closure')
+        log = 'Forcing thread closure'
+        print(log) if not logger else logger.info(log)
         for thread in threading.enumerate():
             # app.logger.info(thread)
             print(thread)
     else:
         # app.logger.info('All threads ended correctly')
-        print('All threads ended correctly')
+        log = 'All threads ended correctly'
+        print(log) if not logger else logger.info(log)
 
 
 def get_environ():

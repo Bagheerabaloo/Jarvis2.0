@@ -1,9 +1,9 @@
 import re
 import platform
 import os
+import asyncio
 
-from threading import Thread, Lock
-from enum import Enum
+from threading import Thread, Lock, Event
 from typing import List, Dict, Any
 from sqlalchemy import select
 from datetime import datetime, timezone
@@ -11,7 +11,9 @@ from typing import Tuple, List, Dict, Optional
 
 from src.common.web_driver.ChromeDriver import ChromeDriver
 from src.common.web_driver.FirefoxDriver import FirefoxDriver
+from src.common.web_driver.Browser import Browser
 
+from src.scraping.AutoScout.set_up_logger import LOGGER
 from src.scraping.AutoScout.db.database import session_local
 from src.scraping.AutoScout.upsert_precise_pg import upsert_listings_summary_precise
 from src.scraping.AutoScout.upsert_details_pg import upsert_listing_detail
@@ -28,62 +30,60 @@ PRICE_MAX = 9_000
 MILEAGE_MAX = 100_000
 REQUIRED_SELLER = "Privato"
 FORCE_RUN = False
-HEADLESS = True
 
+HEADLESS = True
 FILTER = True
 SEND_WITHDRAWN_ALERTS = False  # whether to notify also about withdrawn listings
-
-from dotenv import load_dotenv
-load_dotenv()
-
-def running_on_raspberry() -> bool:
-    """
-    Ritorna True se stiamo girando su Raspberry Pi (Linux),
-    False altrimenti.
-
-    Usa prima una variabile d'ambiente RUN_ENV (se presente),
-    altrimenti auto-detect.
-    """
-    # 1) Override manuale via env (più forte di tutto)
-    run_env = os.getenv("RUN_ENV")
-    if run_env == "raspberry":
-        return True
-    if run_env == "pc":
-        return False
-
-    # 2) Auto-detect: se non siamo su Linux, sicuramente non è Raspberry
-    if platform.system() != "Linux":
-        return False
-
-    # 3) Su Linux, controlliamo il model del device
-    try:
-        with open("/sys/firmware/devicetree/base/model", "r") as f:
-            model = f.read()
-        return "Raspberry Pi" in model
-    except FileNotFoundError:
-        return False
-
-
-IS_RASPBERRY = running_on_raspberry()
-print("Running on Raspberry:", IS_RASPBERRY)
-
-
-class Browser(str, Enum):
-    firefox = 'Firefox'
-    chrome = 'Chrome'
 
 
 class AutoScout:
     reject_cookies_class = ['_consent-settings_1lphq_103']
     lost_password_text = ['Hai perso la password?']
 
-    def __init__(self, browser: Browser, headless: bool = False, **kwargs):
+    def __init__(
+            self,
+            browser: Browser,
+            headless: bool = False,
+            stop_event: Event | None = None,
+            is_raspberry: bool = False,
+            **kwargs
+    ):
         self.driver = None
+        self.is_raspberry = is_raspberry
         self.headless = headless
         self.browser = browser
         self.lock = Lock()
-
         self.filter = FILTER
+        self.stop_event = stop_event
+
+    # __ helpers __
+    def _should_stop(self) -> bool:
+        """Return True if a stop has been requested."""
+        return bool(self.stop_event and self.stop_event.is_set())
+
+    def _sleep_or_stop(self, seconds: float) -> bool:
+        """Sleep in small chunks and abort early if stop is requested."""
+        step = 0.5
+        remaining = seconds
+        while remaining > 0:
+            if self._should_stop():
+                return False
+            s = step if remaining > step else remaining
+            sleep(s)
+            remaining -= s
+        return True
+
+    async def _async_sleep_or_stop(self, seconds: float) -> bool:
+        """Async version: use only in async functions."""
+        step = 0.5
+        remaining = seconds
+        while remaining > 0:
+            if self._should_stop():
+                return False
+            s = step if remaining > step else remaining
+            await asyncio.sleep(s)
+            remaining -= s
+        return True
 
     # __ initialization __
     def init_driver(self):
@@ -95,7 +95,7 @@ class AutoScout:
             # Su Linux (Raspberry) usiamo os_environ=True,
             # su Windows restiamo con os_environ=False.
             self.driver = FirefoxDriver(
-                os_environ=IS_RASPBERRY,      # True su Raspberry, False su Windows
+                os_environ=self.is_raspberry,      # True su Raspberry, False su Windows
                 headless=self.headless,
                 selenium_profile=True,    # profilo Selenium su entrambi
             )
@@ -109,8 +109,9 @@ class AutoScout:
 
     def close_driver(self):
         self.lock.acquire()
-        if self.driver.driver:
+        if self.driver and self.driver.driver:
             self.driver.close_driver()
+            LOGGER.info("Web driver closed")
         self.lock.release()
         self.driver = None
 
@@ -120,22 +121,25 @@ class AutoScout:
         self.init_driver() if not self.driver else None
 
         # __ Get Booking search results page __ #
-        self._get_starting_page()
-        print("navigator.webdriver =", self.driver.driver.execute_script("return navigator.webdriver"))
-        print("navigator.hardwareConcurrency =", self.driver.driver.execute_script("return navigator.hardwareConcurrency"))
-        print("navigator.deviceMemory =", self.driver.driver.execute_script("return navigator.deviceMemory"))
+        await self._get_starting_page()
+        LOGGER.info(f'navigator.webdriver = {self.driver.driver.execute_script("return navigator.webdriver")}')
+        LOGGER.info(f'navigator.hardwareConcurrency = {self.driver.driver.execute_script("return navigator.hardwareConcurrency")}')
+        LOGGER.info(f'navigator.deviceMemory = {self.driver.driver.execute_script("return navigator.deviceMemory")}')
 
         # __ Reject cookies __
-        safe_execute(None, self._reject_cookies)
+        await self._reject_cookies()
 
         # __ Fill search form and submit __
-        if not self.fill_search_form_and_submit():
-            print("Failed to fill and submit search form.")
-            self.close_driver()
+        if not await self.fill_search_form_and_submit():
+            LOGGER.info("Failed to fill and submit search form.")
+            # self.close_driver()
             return
 
         # rows = self.scrape_pages(2)
-        rows = self.scrape_all_pages() # TODO: add ordering by latest
+        rows = await self.scrape_all_pages() # TODO: add ordering by latest
+
+        if self._should_stop():
+            return
 
         # __ save to DB with upsert __
         with session_local() as session:
@@ -150,16 +154,16 @@ class AutoScout:
         valid_rows = self.validate_listing(rows)
 
         # __ scrape details for the new and valid ones __
-        detailed_rows = self.scrape_and_store_details_for_new(valid_rows)
+        detailed_rows = await self.scrape_and_store_details_for_new(valid_rows)
 
         # __ compute air distances for the valid ones __
         with session_local() as s:
             dist_by_id = compute_air_distance_for_rows(s, valid_rows, detailed_rows=detailed_rows, base_address="Via Primaticcio, Milano")
 
-        print("=== Run completed ===")
-        print("Inserted:", len(result["inserted_ids"]))
-        print("Updated:", len(result["updated_ids"]))
-        print("Unchanged:", len(result["unchanged_ids"]))
+        LOGGER.info("=== Run completed ===")
+        LOGGER.info("Inserted:", len(result["inserted_ids"]))
+        LOGGER.info("Updated:", len(result["updated_ids"]))
+        LOGGER.info("Unchanged:", len(result["unchanged_ids"]))
 
         # __ notify via Telegram __
         await notify_inserted_listings_via_telegram(
@@ -169,20 +173,40 @@ class AutoScout:
             dist_by_id=dist_by_id,
             detailed_rows=detailed_rows)
 
-        # # __ close driver __
-        # self.close_driver()
+        LOGGER.info("✅ Esecuzione completata.")
 
-    def _get_starting_page(self) -> None:
+        if self._should_stop():
+            return
+
+        LOGGER.info("🔎 Verifica disponibilità vecchie inserzioni...")
+
+        # verifica disponibilità
+        await self.verify_availability_and_mark(
+            telegram_bot=telegram_bot,
+            admin_info=admin_info,
+            max_to_check=100,
+            price_lte=int(MAX_PRICE.replace(".", "").replace("€", "").strip()),
+            max_mileage_km=int(MAX_MILEAGE_KM.replace(".", "")),
+            seller_type="Privato",
+        )
+
+    async def _get_starting_page(self) -> bool:
         base_url = "https://www.autoscout24.it/"
         self.driver.get_url(base_url, add_slash=True)
-        sleep(5)
+        return await self._async_sleep_or_stop(5)
 
-    def _reject_cookies(self):
-        self.driver.find_element_by_xpath(xpath=f"//button[@class='{self.reject_cookies_class[-1]}']").click()
-        sleep(2)
-        self.driver.find_element_by_xpath(xpath=f"//button[@class='scr-button scr-button--secondary']").click()
-        sleep(5)
-        return True
+    async def _reject_cookies(self) -> bool:
+        safe_execute(
+            None,
+            lambda: self.driver.find_element_by_xpath(xpath=f"//button[@class='{self.reject_cookies_class[-1]}']").click()
+        )
+        if not await self._async_sleep_or_stop(2):
+            return False
+        safe_execute(
+            None,
+            lambda: self.driver.find_element_by_xpath(xpath=f"//button[@class='scr-button scr-button--secondary']").click()
+        )
+        return await self._async_sleep_or_stop(5)
 
     # 1) DB -> load ListingSummary rows for inserted_ids
     def load_new_listings(self, inserted_ids: list[str]) -> list[ListingSummary]:
@@ -215,7 +239,7 @@ class AutoScout:
         return valid_rows
 
     # _________ Listing Details __________
-    def scrape_and_store_details_for_new(self, new_rows: List[ListingSummary]) -> Dict[str, dict]:
+    async def scrape_and_store_details_for_new(self, new_rows: List[ListingSummary]) -> Dict[str, dict]:
         """Open each new listing in a new tab, parse details, upsert, and return an enriched payload per listing.
 
         Returns:
@@ -223,7 +247,7 @@ class AutoScout:
                         ready to be sent to Telegram.
         """
         if len(new_rows) == 0:
-            return
+            return {}
 
         results: Dict[str, dict] = {}
         with session_local() as session:
@@ -233,11 +257,15 @@ class AutoScout:
                     # --- open detail ---
                     self._open_detail_in_new_tab(url)
                     self.driver.web_driver_wait(10)
-                    sleep(5)  # small pause for async chunks
+                    if not self._async_sleep_or_stop(5):  # small pause for async chunks
+                        return {}
 
                     # --- parse details ---
                     data = self._parse_detail_page() or {}
                     data["listing_id"] = ls.listing_id
+
+                    if self._should_stop():
+                        return {}
 
                     # --- persist details ---
                     upsert_listing_detail(session, data)
@@ -254,7 +282,7 @@ class AutoScout:
                         "seller_phone": data.get("seller_phone"),
                     }
                 except Exception as e:
-                    print(f"[detail] fail {ls.listing_id}: {e}")
+                    LOGGER.info(f"[detail] fail {ls.listing_id}: {e}")
                 finally:
                     # close detail tab and go back to list
                     try:
@@ -498,19 +526,20 @@ class AutoScout:
             pass
 
     # ---------- scenario 1 ----------
-    def fill_search_form_and_submit(self) -> bool:
+    async def fill_search_form_and_submit(self) -> bool:
         try:
             self.driver.click_link_by_class("hf-searchmask-form__detail-search")
-            self.fill_requested_filters()
+            if not await self.fill_requested_filters():
+                return False
             btn = self.driver.wait_until_clickable_by_xpath("//button[contains(@class,'DetailSearchPage_button__')]")
             self.driver.scroll_into_view(btn, block="center")
             self.driver.click_element(btn)
-            sleep(5)
-            return True
-        except:
+            return await self._async_sleep_or_stop(5)
+        except Exception as e:
+            LOGGER.info(e)
             return False
 
-    def fill_requested_filters(self):
+    async def fill_requested_filters(self):
         """Fill all requested filters in one go."""
         self.set_fuel_types(["Elettrica/Benzina", "Benzina", "Metano", "GPL"])  # Carburante: Elettrica/Benzina, Benzina, Metano, GPL
         self.set_year_from(2015)
@@ -520,7 +549,7 @@ class AutoScout:
         self.set_radius(RADIUS)
         self.set_mileage_to("100.000")
         self.select_seller_privato()
-        sleep(8)
+        return self._sleep_or_stop(8)
 
     # ---------- low-level helpers (page-specific, but only via self.driver API) ----------
     def _open_combo(self, button_id: str):
@@ -673,7 +702,7 @@ class AutoScout:
         for label_text in names:
             cid = id_map.get(label_text)
             if not cid:
-                print(f"[fuel] unknown label '{label_text}' (no id mapping)")
+                LOGGER.info(f"[fuel] unknown label '{label_text}' (no id mapping)")
                 continue
 
             # click the <label for="cid"> (more reliable than clicking the <input>)
@@ -694,7 +723,7 @@ class AutoScout:
                     inp = self.driver.wait_until_present_by_id(cid)
                     self.driver.js_click(inp)
                 except Exception as e:
-                    print(f"[fuel] cannot select '{label_text}' ({cid}): {e}")
+                    LOGGER.info(f"[fuel] cannot select '{label_text}' ({cid}): {e}")
 
         # close dropdown (best-effort)
         try:
@@ -866,7 +895,7 @@ class AutoScout:
         m = re.search(r"/\s*(\d+)", text)
         return int(m.group(1)) if m else None
 
-    def scrape_all_pages(self, max_pages: int | None = None) -> List[Dict[str, Any]]:
+    async def scrape_all_pages(self, max_pages: int | None = None) -> List[Dict[str, Any]]:
         """
         Scrape the current page and all subsequent pages until no 'next' is available.
         If max_pages is provided, stop after that many pages (useful for testing).
@@ -875,9 +904,13 @@ class AutoScout:
 
         # Optionally detect total pages up-front (not mandatory to proceed)
         total_pages = self.get_total_pages()
+        LOGGER.info(f"Total pages detected: {total_pages}" if total_pages else "Total pages not detected")
 
         page_index = 0
         while True:
+            if self._should_stop():
+                return []  # interrupted
+
             page_index += 1
 
             # Lazy-load content: scroll to bottom to ensure all ~20 cards are in DOM
@@ -887,7 +920,8 @@ class AutoScout:
                 pass
 
             # sleep
-            sleep(5)
+            if not await self._async_sleep_or_stop(5):
+                return []  # interrupted
 
             # Parse current page
             try:
@@ -1004,13 +1038,16 @@ class AutoScout:
                 try:
                     self._open_detail_in_new_tab(url)
                     self.driver.web_driver_wait(10)
-                    sleep(2)
+                    if not self._sleep_or_stop(2):
+                        LOGGER.info("[availability] interrupted during sleep")
+                        return
+
                     soup = self.driver.get_response()
 
                     gone = self._is_detail_gone(soup)
                     ls.last_availability_check_at = now
                     if gone and ls.is_available:
-                        print(f"[availability] marking gone {ls.listing_id} ({url})")
+                        LOGGER.info(f"[availability] marking gone {ls.listing_id} ({url})")
                         if telegram_bot and admin_info and SEND_WITHDRAWN_ALERTS:
                             admin_chat = [x['chat'] for x in admin_info if x['is_admin']][0]
                             await telegram_bot.send_message(
@@ -1024,7 +1061,7 @@ class AutoScout:
                     session.commit()
                 except Exception as e:
                     session.rollback()
-                    print(f"[availability] fail {ls.listing_id}: {e}")
+                    LOGGER.info(f"[availability] fail {ls.listing_id}: {e}")
                 finally:
                     try:
                         self._close_current_tab_and_back()
@@ -1083,23 +1120,23 @@ class AutoScout:
         await self._send_eod(telegram_bot, admin_info, text)
 
 
-async def main():
+async def main(is_raspberry: bool = False):
     brwsr = Browser.firefox
 
     # __ set up telegram bot __
     keys = ["ADMIN_INFO", "TELEGRAM_MARINELLA"]
-    admin_info, telegram_bot = set_up_telegram_bot(keys=keys, is_raspberry=IS_RASPBERRY)
+    admin_info, telegram_bot = set_up_telegram_bot(keys=keys, is_raspberry=is_raspberry)
 
     counter = 0
     force_run = FORCE_RUN
 
-    app = AutoScout(browser=brwsr, headless=HEADLESS, sslmode='disable')
+    app = AutoScout(browser=brwsr, headless=HEADLESS, sslmode='disable', is_raspberry=is_raspberry)
     while True:
         init_time = time()
         hour = datetime.now().hour
         bool_ = 9 <= hour < 24
         if not bool_ and not force_run:
-            print("⏸ Pausa notturna: nessuna esecuzione tra le 00:00 e le 09:00")
+            LOGGER.info("⏸ Pausa notturna: nessuna esecuzione tra le 00:00 e le 09:00")
             if counter == 0:
                 await app.send_end_of_day_summary(telegram_bot, admin_info)
             counter += 1
@@ -1118,7 +1155,7 @@ async def main():
             )
             counter = 0
         except Exception as e:
-            print(f"❌ Errore fatale: {e}")
+            LOGGER.info(f"❌ Errore fatale: {e}")
             if telegram_bot and admin_info:
                 admin_chat = [x['chat'] for x in admin_info if x['is_admin']][0]
                 await telegram_bot.send_message(admin_chat, f"❌ Errore fatale in AutoScout: {e}")
@@ -1126,10 +1163,12 @@ async def main():
             app.close_driver()
 
         force_run = False
-        print(f"Elapsed time: {seconds_to_time(time() - init_time)}")
-        print("⏱ In attesa della prossima esecuzione...")
+        LOGGER.info(f"Elapsed time: {seconds_to_time_str(time() - init_time)}")
+        LOGGER.info("⏱ In attesa della prossima esecuzione...")
         sleep(30 * 60)  # wait 30 minutes before next run
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    from src.raspberryPI5.raspberry_init import IS_RASPBERRY
+
+    asyncio.run(main(is_raspberry=IS_RASPBERRY))
