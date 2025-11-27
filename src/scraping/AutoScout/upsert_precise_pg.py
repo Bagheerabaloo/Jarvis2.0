@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import func
+from src.scraping.AutoScout.set_up_logger import LOGGER
 from src.scraping.AutoScout.db.models import ListingSummary  # il tuo ORM model (tab listing_summary)
 
 SUMMARY_HASH_FIELDS = [
@@ -150,7 +151,7 @@ def upsert_listings_summary_precise(session: Session, rows: List[Dict[str, Any]]
                     continue
 
                 if old != new:
-                    print(f"[DIFF] {lid} {c}: {old} -> {new}")
+                    LOGGER.info(f"[DIFF] {lid} {c}: {old} -> {new}")
 
         # -------- 2) UPDATE changed rows (hash differs): set new values, bump change_count, touch last_seen
         upd_changed = (

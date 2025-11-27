@@ -251,7 +251,8 @@ class AutoScout:
 
         results: Dict[str, dict] = {}
         with session_local() as session:
-            for ls in new_rows:
+            for index, ls in enumerate(new_rows):
+                LOGGER.info(f"Scraping details for listing ID: {ls.listing_id} - {index+1}/{len(new_rows)}")
                 url = ls.detail_url or f"https://www.autoscout24.it/annunci/{ls.listing_id}"
                 LOGGER.info(f"Scraping detail for {ls.listing_id} - {url}")
                 try:
@@ -1036,7 +1037,8 @@ class AutoScout:
 
             candidates: list[ListingSummary] = q.all()
 
-            for ls in candidates:
+            for index, ls in enumerate(candidates):
+                LOGGER.info(f"[availability] checking {index + 1}/{len(candidates)}: {ls.listing_id}")
                 url = ls.detail_url or f"https://www.autoscout24.it/annunci/{ls.listing_id}"
                 try:
                     self._open_detail_in_new_tab(url)

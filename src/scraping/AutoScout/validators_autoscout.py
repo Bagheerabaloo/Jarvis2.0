@@ -1,6 +1,7 @@
 # validators_autoscout.py
 import re
 from typing import Tuple, List, Dict
+from src.scraping.AutoScout.set_up_logger import LOGGER
 from src.scraping.AutoScout.db.models import ListingSummary
 
 
@@ -88,6 +89,6 @@ def filter_listings_for_request(rows: List[ListingSummary],
 
     # Log (or print) rejected items with reasons
     for r in rejected:
-        print(f"[SKIP] {r['listing_id']}: {', '.join(r['reasons'])}  | {r.get('title', '')}")
+        LOGGER.info(f"[SKIP] {r['listing_id']}: {', '.join(r['reasons'])}  | {r.get('title', '')}")
 
     return valids
