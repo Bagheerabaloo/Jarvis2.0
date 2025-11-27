@@ -161,9 +161,9 @@ class AutoScout:
             dist_by_id = compute_air_distance_for_rows(s, valid_rows, detailed_rows=detailed_rows, base_address="Via Primaticcio, Milano")
 
         LOGGER.info("=== Run completed ===")
-        LOGGER.info("Inserted:", len(result["inserted_ids"]))
-        LOGGER.info("Updated:", len(result["updated_ids"]))
-        LOGGER.info("Unchanged:", len(result["unchanged_ids"]))
+        LOGGER.info(f'Inserted: {len(result["inserted_ids"])}')
+        LOGGER.info(f'Updated: {len(result["updated_ids"])}')
+        LOGGER.info(f'Unchanged: {len(result["unchanged_ids"])}')
 
         # __ notify via Telegram __
         await notify_inserted_listings_via_telegram(
