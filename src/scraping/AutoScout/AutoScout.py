@@ -147,38 +147,34 @@ class AutoScout:
 
         # __ load newly inserted listings from DB __
         rows = self.load_new_listings(result["inserted_ids"])
-        if not rows:
-            return
+        if len(rows) > 0:
+            # __ validate against your search filters __
+            valid_rows = self.validate_listing(rows)
 
-        # __ validate against your search filters __
-        valid_rows = self.validate_listing(rows)
+            # __ scrape details for the new and valid ones __
+            detailed_rows = await self.scrape_and_store_details_for_new(valid_rows)
 
-        # __ scrape details for the new and valid ones __
-        detailed_rows = await self.scrape_and_store_details_for_new(valid_rows)
+            # __ compute air distances for the valid ones __
+            with session_local() as s:
+                dist_by_id = compute_air_distance_for_rows(s, valid_rows, detailed_rows=detailed_rows, base_address="Via Primaticcio, Milano")
 
-        # __ compute air distances for the valid ones __
-        with session_local() as s:
-            dist_by_id = compute_air_distance_for_rows(s, valid_rows, detailed_rows=detailed_rows, base_address="Via Primaticcio, Milano")
+            # __ notify via Telegram __
+            await notify_inserted_listings_via_telegram(
+                valid_rows=valid_rows,
+                telegram_bot=telegram_bot,
+                admin_info=admin_info,
+                dist_by_id=dist_by_id,
+                detailed_rows=detailed_rows)
 
         LOGGER.info("=== Run completed ===")
         LOGGER.info(f'Inserted: {len(result["inserted_ids"])}')
         LOGGER.info(f'Updated: {len(result["updated_ids"])}')
         LOGGER.info(f'Unchanged: {len(result["unchanged_ids"])}')
-
-        # __ notify via Telegram __
-        await notify_inserted_listings_via_telegram(
-            valid_rows=valid_rows,
-            telegram_bot=telegram_bot,
-            admin_info=admin_info,
-            dist_by_id=dist_by_id,
-            detailed_rows=detailed_rows)
-
         LOGGER.info("✅ Esecuzione completata.")
+        LOGGER.info("🔎 Verifica disponibilità vecchie inserzioni...")
 
         if self._should_stop():
             return
-
-        LOGGER.info("🔎 Verifica disponibilità vecchie inserzioni...")
 
         # verifica disponibilità
         await self.verify_availability_and_mark(
