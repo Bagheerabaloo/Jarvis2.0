@@ -6,6 +6,8 @@ from src.common.web_driver.Browser import Browser
 from src.scraping.AutoScout.telegram_notifications import *
 from src.scraping.AutoScout.AutoScout import AutoScout
 
+from dotenv import load_dotenv
+load_dotenv()
 
 def load_config() -> dict:
     """Load YAML configuration from file or exit on error."""
