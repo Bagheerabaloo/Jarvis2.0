@@ -96,13 +96,10 @@ class AutoScoutApp:
                 continue
 
             try:
-                # run principale
                 await self.autoscout.main(telegram_bot=self.telegram, admin_info=self.admin_info)
-
                 self.counter = 0
-
             except Exception as e:
-                LOGGER.info(f"❌ Errore fatale: {e}")
+                LOGGER.error(f"❌ Errore fatale: {e}")
                 if self.telegram and self.admin_info:
                     admin_chat = [x["chat"] for x in self.admin_info if x.get("is_admin")][0]
                     await self.telegram.send_message(admin_chat, f"❌ Errore fatale in AutoScout: {e}")

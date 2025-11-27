@@ -131,7 +131,7 @@ class AutoScout:
 
         # __ Fill search form and submit __
         if not await self.fill_search_form_and_submit():
-            LOGGER.info("Failed to fill and submit search form.")
+            LOGGER.error("Failed to fill and submit search form.")
             # self.close_driver()
             return
 
@@ -253,6 +253,7 @@ class AutoScout:
         with session_local() as session:
             for ls in new_rows:
                 url = ls.detail_url or f"https://www.autoscout24.it/annunci/{ls.listing_id}"
+                LOGGER.info(f"Scraping detail for {ls.listing_id} - {url}")
                 try:
                     # --- open detail ---
                     self._open_detail_in_new_tab(url)
@@ -912,6 +913,8 @@ class AutoScout:
                 return []  # interrupted
 
             page_index += 1
+
+            LOGGER.info(f"Scraping page {page_index}...")
 
             # Lazy-load content: scroll to bottom to ensure all ~20 cards are in DOM
             try:
