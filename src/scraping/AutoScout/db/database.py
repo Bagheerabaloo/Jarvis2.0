@@ -12,7 +12,8 @@ if os.environ.get("RUN_ENV", "").lower() == "raspberry":
 else:
     # PC Windows continua a usare i file config (TXT)
     config_manager = FileManager()
-    postgre_url = config_manager.get_postgre_url("POSTGRE_URL_LOCAL_AUTOSCOUT")
+    # postgre_url = config_manager.get_postgre_url("POSTGRE_URL_LOCAL_AUTOSCOUT")
+    postgre_url = config_manager.get_postgre_url("POSTGRE_URL_RASPBERRY_AUTOSCOUT")
 
 # Configure SQLAlchemy logging
 # logging.basicConfig()
