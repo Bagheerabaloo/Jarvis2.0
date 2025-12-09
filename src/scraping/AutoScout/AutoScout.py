@@ -29,9 +29,9 @@ MAX_MILEAGE_KM = "100.000"
 PRICE_MAX = 9_000
 MILEAGE_MAX = 100_000
 REQUIRED_SELLER = "Privato"
-FORCE_RUN = False
+FORCE_RUN = True
 
-HEADLESS = True
+HEADLESS = False
 FILTER = True
 SEND_WITHDRAWN_ALERTS = False  # whether to notify also about withdrawn listings
 
@@ -350,21 +350,24 @@ class AutoScout:
             return None
 
         # --- Stage basics
-        title = get_txt(".StageTitle_title__ROiR4")
-        model_version = get_txt(".StageTitle_modelVersion__Yof2Z")
-        price_text = get_txt("[data-testid='price-section'] .PriceInfo_price__XU0aF")
-        price_label = get_txt(".Price_priceLabelButton__w2Qt_ p")
-        location_text = get_txt(".LocationWithPin_locationItem__tK1m5")
-        maps_href = get_attr(".LocationWithPin_locationItem__tK1m5", "href")
+        # Use wildcard selectors on class names so they survive hash changes
+        title = get_txt("[class*='StageTitle_title__']")
+        model_version = get_txt("[class*='StageTitle_modelVersion__']")
+        price_text = get_txt("[data-testid='price-section'] [class*='PriceInfo_price__']")
+        price_label = get_txt("[class*='Price_priceLabelButton__'] p")
+        location_text = get_txt("[class*='LocationWithPin_locationItem__']")
+        maps_href = get_attr("[class*='LocationWithPin_locationItem__']", "href")
         seller_phone = _extract_phone(soup)
 
-        # Overview items
-        ov_map = {}
-        for it in soup.select(".VehicleOverview_itemContainer__XSLWi"):
-            k = it.select_one(".VehicleOverview_itemTitle__S2_lb")
-            v = it.select_one(".VehicleOverview_itemText__AI4dA")
-            if k and v:
-                ov_map[k.get_text(" ", strip=True).lower()] = v.get_text(" ", strip=True)
+        # Overview items (top summary block)
+        ov_map: dict[str, str] = {}
+        for it in soup.select("[class*='VehicleOverview_itemContainer__']"):
+            k_el = it.select_one("[class*='VehicleOverview_itemTitle__']")
+            v_el = it.select_one("[class*='VehicleOverview_itemText__']")
+            if k_el and v_el:
+                key = k_el.get_text(" ", strip=True).lower()
+                val = v_el.get_text(" ", strip=True)
+                ov_map[key] = val
 
         overview_mileage = ov_map.get("chilometraggio")
         overview_gearbox = ov_map.get("tipo di cambio")
@@ -378,7 +381,7 @@ class AutoScout:
         main_image_url = main_img["src"] if main_img and main_img.has_attr("src") else None
 
         # Carfax link
-        carfax = soup.select_one(".CarReports_button__AkcyE")
+        carfax = soup.select_one("[class*='CarReports_button__']")
         carfax_url = carfax["href"] if carfax and carfax.has_attr("href") else None
 
         # --- Finanziamento (dl)
@@ -742,7 +745,12 @@ class AutoScout:
         Returns a list of dictionaries (one per listing).
         """
         soup = self.driver.get_response()  # BeautifulSoup of current DOM
-        cards = soup.find_all("article", attrs={"data-testid": "list-item"})
+
+        # 1) Cards: old "list-item" + new "decluttered-list-item"
+        cards = soup.select(
+            "article[data-testid='list-item'], article[data-testid='decluttered-list-item']"
+        )
+
         results = []
 
         for art in cards:
@@ -759,29 +767,81 @@ class AutoScout:
             zip_code = art.get("data-listing-zip-code")
 
             # --- textual fields inside the card ---
-            title_wrap = art.select_one(".ListItem_title__ndA4s h2")
-            title = self._text_or_none(title_wrap)
-            subtitle = self._text_or_none(art.select_one(".ListItem_subtitle__VEw08"))
+            # Title + subtitle: old classes + new "Decluttered" classes
+            # New layout: <span class="ListItemTitle_title__sLi_x"> and <span class="ListItemTitle_subtitle__V_ao6">
+            title = (
+                    self._text_or_none(art.select_one(".ListItemTitle_title__sLi_x"))
+                    or self._text_or_none(art.select_one(".ListItemTitle_heading__G2W_N"))
+                    or self._text_or_none(art.select_one(".ListItem_title__ndA4s h2"))
+            )
+            subtitle = (
+                    self._text_or_none(art.select_one(".ListItemTitle_subtitle__V_ao6"))
+                    or self._text_or_none(art.select_one(".ListItem_subtitle__VEw08"))
+            )
 
-            # Price text (UI)
-            price_text = self._text_or_none(art.select_one("[data-testid='regular-price']"))
+            # Price text (UI): old data-testid + new ".CurrentPrice_price__Ekflz"
+            price_text = self._text_or_none(
+                art.select_one("[data-testid='regular-price'], .CurrentPrice_price__Ekflz")
+            )
 
             # Spec table items by data-testid
-            mileage_text = self._text_or_none(art.select_one("[data-testid='VehicleDetails-mileage_road']"))
-            gearbox_text = self._text_or_none(art.select_one("[data-testid='VehicleDetails-gearbox']"))
-            year_text = self._text_or_none(art.select_one("[data-testid='VehicleDetails-calendar']"))
-            fuel_text = self._text_or_none(art.select_one("[data-testid='VehicleDetails-gas_pump']"))
-            power_text = self._text_or_none(art.select_one("[data-testid='VehicleDetails-speedometer']"))
+            # First try old data-testid, if missing fall back to new pill structure
+            mileage_text = self._text_or_none(
+                art.select_one("[data-testid='VehicleDetails-mileage_road']")
+            )
+            gearbox_text = self._text_or_none(
+                art.select_one("[data-testid='VehicleDetails-gearbox']")
+            )
+            year_text = self._text_or_none(
+                art.select_one("[data-testid='VehicleDetails-calendar']")
+            )
+            fuel_text = self._text_or_none(
+                art.select_one("[data-testid='VehicleDetails-gas_pump']")
+            )
+            power_text = self._text_or_none(
+                art.select_one("[data-testid='VehicleDetails-speedometer']")
+            )
+
+            # New layout: pills with icon + text
+            # <use xlink:href="...#calendar">, "...#mileage_road", "...#gas_pump", "...#speedometer"
+            if not any([mileage_text, year_text, fuel_text, power_text]):
+                pills = art.select(".ListItemPill_pill__aVIeF")
+                for pill in pills:
+                    use = pill.select_one("svg use")
+                    text_span = pill.select_one(".ListItemPill_text__Cr6mq")
+                    pill_text = self._text_or_none(text_span)
+                    if not use or not pill_text:
+                        continue
+
+                    href = use.get("xlink:href") or use.get("href") or ""
+                    if href.endswith("#calendar"):
+                        year_text = pill_text
+                    elif href.endswith("#mileage_road"):
+                        mileage_text = pill_text
+                    elif href.endswith("#gas_pump"):
+                        fuel_text = pill_text
+                    elif href.endswith("#speedometer"):
+                        power_text = pill_text
 
             # Image (first picture on the slider)
             img = art.select_one("picture img")
             image_url = img.get("src") if img else None
 
-            # Seller/Location text (for private sellers)
-            location_text = self._text_or_none(art.select_one(".PrivateSellerInfo_private__u71ah"))
+            # Seller/Location text: old private seller div + new ListItemSeller_* classes
+            location_text = self._text_or_none(
+                art.select_one(
+                    ".PrivateSellerInfo_private__u71ah, .ListItemSeller_address__Fqhiu"
+                )
+            )
 
-            # --- link: try anchor tag ---
-            link_tag = art.select_one(".ListItem_title__ndA4s a[href]")
+            # --- link: title anchor ---
+            # Old: .ListItem_title__ndA4s a[href]
+            # New: .ListItemTitle_wrapper__QhK3w a[href] / a.ListItemTitle_anchor__4TrfR
+            link_tag = art.select_one(
+                ".ListItem_title__ndA4s a[href], "
+                ".ListItemTitle_wrapper__QhK3w a[href], "
+                "a.ListItemTitle_anchor__4TrfR[href]"
+            )
             if link_tag:
                 detail_url = link_tag["href"]
                 # ensure absolute URL
@@ -789,7 +849,9 @@ class AutoScout:
                     detail_url = "https://www.autoscout24.it" + detail_url
             else:
                 # fallback: build URL from listing id
-                detail_url = f"https://www.autoscout24.it/annunci/{listing_id}" if listing_id else None
+                detail_url = (
+                    f"https://www.autoscout24.it/annunci/{listing_id}" if listing_id else None
+                )
 
             # --- seller type ---
             seller_code = art.get("data-seller-type")  # "p" or "d"
@@ -799,7 +861,11 @@ class AutoScout:
                 seller_type = "Rivenditore"
             else:
                 # fallback from visible text
-                txt = self._text_or_none(art.select_one(".PrivateSellerInfo_private__u71ah"))
+                txt = self._text_or_none(
+                    art.select_one(
+                        ".PrivateSellerInfo_private__u71ah, .ListItemSeller_name__3T6DT"
+                    )
+                )
                 seller_type = "Privato" if txt and "Privato" in txt else "Rivenditore"
 
             results.append({
@@ -926,6 +992,7 @@ class AutoScout:
             # Parse current page
             try:
                 rows = self.parse_listings_on_page()
+                LOGGER.info(f"Found {len(rows)} rows")
                 all_rows.extend(rows)
             except:
                 pass
