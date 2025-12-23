@@ -255,7 +255,7 @@ class AutoScout:
                     # --- open detail ---
                     self._open_detail_in_new_tab(url)
                     self.driver.web_driver_wait(10)
-                    if not self._async_sleep_or_stop(5):  # small pause for async chunks
+                    if not await self._async_sleep_or_stop(5):  # small pause for async chunks
                         return {}
 
                     # --- parse details ---
