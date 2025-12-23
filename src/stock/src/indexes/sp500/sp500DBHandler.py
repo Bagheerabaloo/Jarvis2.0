@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import session as sess
 from sqlalchemy import text
 
-from src.common.tools.library import seconds_to_time, safe_execute
-from src.stock.src.TickerService import TickerService
+# from src.common.tools.library import seconds_to_time, safe_execute
+# from src.stock.src.TickerService import TickerService
 from src.stock.src.db.database import session_local
 from src.stock.src.db.models import SP500Changes, SP500Historical
 import requests

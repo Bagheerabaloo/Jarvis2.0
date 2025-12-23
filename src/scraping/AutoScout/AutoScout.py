@@ -1143,11 +1143,14 @@ class AutoScout:
     async def _send_eod(telegram_bot, admin_info, text):
         # Send sequentially within one loop - sending to all admin
         for info in admin_info:
-            await telegram_bot.send_message(
-                chat_id=info["chat"],
-                text=text,
-                parse_mode="Markdown",
-            )
+            try:
+                await telegram_bot.send_message(
+                    chat_id=info["chat"],
+                    text=text,
+                    parse_mode="Markdown",
+                )
+            except:
+                LOGGER.error(f"EOD summary: failed to send to {info['chat']}")
 
     async def send_end_of_day_summary(self, telegram_bot, admin_info: list[dict], day: datetime | None = None, limit_per_make_model: int = 3):
         """

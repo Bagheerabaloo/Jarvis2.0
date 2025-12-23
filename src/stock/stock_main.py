@@ -20,7 +20,7 @@ from logger_setup import LOGGER
 def archive_logs():
     log_files = os.listdir(r"C:\Users\Vale\PycharmProjects\Jarvis2.0\logs") # TODO: change to relative path
     # __ get files that are older than one week __
-    older_logs = [f for f in log_files if os.path.getmtime(f"C:/Users/Vale/PycharmProjects/Jarvis2.0/logs/{f}") < time() - 7 * 24 * 3600]
+    older_logs = [f for f in log_files if os.path.getmtime(f"C:/Users/Vale/PycharmProjects/Jarvis2.0/logs/{f}") < time() - 7 * 24 * 3600 and f.endswith('.txt')]
     # __ make backup dir if it doesn't exist __
     if not os.path.exists(r"C:\Users\Vale\PycharmProjects\Jarvis2.0\logs\logs_backup"):
         os.makedirs(r"C:\Users\Vale\PycharmProjects\Jarvis2.0\logs\logs_backup")
@@ -189,7 +189,7 @@ def main(process_name_: str = None,
     queries = Queries(session)
     symbols_with_errors = queries.get_yfinance_error_tickers()
 
-    # symbols=['TSM']
+    # symbols=['TSLA']
 
     stock_updater = StockUpdater(session=session, symbols_with_errors=symbols_with_errors)
     results = stock_updater.update_all_tickers(symbols=symbols)
@@ -277,6 +277,6 @@ if __name__ == '__main__':
     if process_name == 'scheduled':
         main(process_name)
     else:
-        main(process_name, limit=1000, only_sp500=True, add_sp500=True, only_yf_error=True, refresh_materialized=True)
+        main(process_name, limit=1000, only_sp500=True, add_sp500=True, only_yf_error=False, refresh_materialized=True)
         # update_only_candles(process_name)
     # plot_candles()
