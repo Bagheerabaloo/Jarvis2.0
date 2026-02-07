@@ -179,6 +179,12 @@ class WebDriver:
         input_element.send_keys(Keys.DELETE)
         input_element.send_keys(text)
 
+    def insert_by_class(self, class_, text):
+        input_element = self.find_element_by_xpath(f"//input[@class='{class_}']")
+        input_element.send_keys(Keys.CONTROL + "a")
+        input_element.send_keys(Keys.DELETE)
+        input_element.send_keys(text)
+
     # _____ Tables _____
     def get_tables_with_pandas(self, table_id):
         all_tables = pd.read_html(self.driver.page_source, attrs={'id': table_id})

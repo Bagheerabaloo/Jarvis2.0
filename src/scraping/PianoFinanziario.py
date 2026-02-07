@@ -212,12 +212,17 @@ class PianoFinanziario:
         sleep(5)
         self.driver.find_element_by_xpath(xpath=f"//a[text()='accesso ospite']").click()
         sleep(5)
-        self.driver.insert_by_id(id='cf-name', text="Valerio")
-        self.driver.insert_by_id(id='cf-email', text="valeriostefanelli@hotmail.it")
-        self.driver.insert_by_id(id='cf-phone', text="3337045696")
-        self.driver.find_element_by_xpath(f"//input[@id='condizioni']").click()
-        self.driver.find_element_by_xpath(f"//input[@id='comunicazioni']").click()
-        self.driver.find_element_by_xpath(xpath=f"//button[@id='submit-button']").click()
+        # self.driver.insert_by_id(id='cf-name', text="Valerio")
+        # self.driver.insert_by_id(id='cf-cognome', text="Stefanelli")
+        # # self.driver.insert_by_id(id='cf-email', text="valeriostefanelli@hotmail.it")
+        # self.driver.insert_by_id(id='cf-phone', text="3337045696")
+        # self.driver.find_element_by_xpath(f"//input[@id='condizioni']").click()
+        # self.driver.find_element_by_xpath(f"//input[@id='comunicazioni']").click()
+        # self.driver.find_element_by_xpath(xpath=f"//button[@id='submit-button']").click()
+
+        self.driver.find_element_by_xpath(xpath=f"//a[@href='/login/']").click()
+        self.driver.insert_by_class(class_='uk-input', text="valeriostefanelli@hotmail.it")
+        self.driver.find_element_by_xpath(xpath=f"//button[@type='submit']").click()
         return True
 
 
