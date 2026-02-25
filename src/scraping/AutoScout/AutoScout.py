@@ -21,7 +21,7 @@ from src.scraping.AutoScout.geo_utils import compute_air_distance_for_rows
 from src.scraping.AutoScout.telegram_notifications import *
 from src.scraping.AutoScout.db.models import ListingSummary, ListingDetail, ListingDistance
 from src.scraping.AutoScout.validators_autoscout import filter_listings_for_request
-
+import re
 
 MAX_PRICE = "9.000 €"
 RADIUS = "50 km"
@@ -84,6 +84,13 @@ class AutoScout:
             await asyncio.sleep(s)
             remaining -= s
         return True
+
+    def _parse_km_int(self, s: str | None) -> int | None:
+        # Extract digits from strings like "131.000 km" / "131,000 km"
+        if not s:
+            return None
+        digits = re.sub(r"[^\d]", "", s)
+        return int(digits) if digits else None
 
     # __ initialization __
     def init_driver(self):
@@ -787,8 +794,13 @@ class AutoScout:
             # Spec table items by data-testid
             # First try old data-testid, if missing fall back to new pill structure
             mileage_text = self._text_or_none(
-                art.select_one("[data-testid='VehicleDetails-mileage_road']")
+                art.select_one(
+                    "[data-testid='VehicleDetails-mileage_odometer'], "
+                    "[data-testid='VehicleDetails-mileage_road'], "
+                    "[data-testid^='VehicleDetails-mileage_']"
+                )
             )
+
             gearbox_text = self._text_or_none(
                 art.select_one("[data-testid='VehicleDetails-gearbox']")
             )
@@ -802,26 +814,23 @@ class AutoScout:
                 art.select_one("[data-testid='VehicleDetails-speedometer']")
             )
 
-            # New layout: pills with icon + text
-            # <use xlink:href="...#calendar">, "...#mileage_road", "...#gas_pump", "...#speedometer"
-            if not any([mileage_text, year_text, fuel_text, power_text]):
-                pills = art.select(".ListItemPill_pill__aVIeF")
-                for pill in pills:
-                    use = pill.select_one("svg use")
-                    text_span = pill.select_one(".ListItemPill_text__Cr6mq")
-                    pill_text = self._text_or_none(text_span)
-                    if not use or not pill_text:
-                        continue
+            # Fill only missing fields from pills (works even if some are already present)
+            pills = art.select("[data-testid^='VehicleDetails-']")
+            for pill in pills:
+                dtid = pill.get("data-testid") or ""
+                pill_text = self._text_or_none(pill)
 
-                    href = use.get("xlink:href") or use.get("href") or ""
-                    if href.endswith("#calendar"):
-                        year_text = pill_text
-                    elif href.endswith("#mileage_road"):
-                        mileage_text = pill_text
-                    elif href.endswith("#gas_pump"):
-                        fuel_text = pill_text
-                    elif href.endswith("#speedometer"):
-                        power_text = pill_text
+                if not pill_text:
+                    continue
+
+                if (not year_text) and dtid == "VehicleDetails-calendar":
+                    year_text = pill_text
+                elif (not mileage_text) and dtid.startswith("VehicleDetails-mileage_"):
+                    mileage_text = pill_text
+                elif (not fuel_text) and dtid == "VehicleDetails-gas_pump":
+                    fuel_text = pill_text
+                elif (not power_text) and dtid == "VehicleDetails-speedometer":
+                    power_text = pill_text
 
             # Image (first picture on the slider)
             img = art.select_one("picture img")
@@ -868,6 +877,8 @@ class AutoScout:
                 )
                 seller_type = "Privato" if txt and "Privato" in txt else "Rivenditore"
 
+            mileage_num_int = self._parse_km_int(mileage_text)
+
             results.append({
                 "listing_id": listing_id,
                 "position": int(position) if position and position.isdigit() else position,
@@ -878,7 +889,7 @@ class AutoScout:
                 "price_eur_num": int(price_num) if price_num and price_num.isdigit() else price_num,
                 "price_text": price_text,
                 "price_label": price_label,               # e.g., 'top-price', 'good-price', etc.
-                "mileage_num": int(mileage_num) if mileage_num and mileage_num.isdigit() else mileage_num,
+                "mileage_num": mileage_num_int,
                 "mileage_text": mileage_text,             # e.g., '78.500 km'
                 "gearbox": gearbox_text,                  # e.g., 'Manuale'
                 "first_registration": first_reg or year_text,  # data-attr or UI text (e.g., '01/2016')
