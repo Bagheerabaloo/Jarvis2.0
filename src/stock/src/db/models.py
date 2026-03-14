@@ -8,7 +8,7 @@ class Ticker(Base):
     __tablename__ = 'ticker'
 
     id = Column(Integer, primary_key=True, autoincrement=True)  # Unique identifier for each ticker
-    symbol = Column(String(10), unique=True, nullable=False)  # Ticker symbol (e.g., AAPL)
+    symbol = Column(String(32), unique=True, nullable=False)  # Ticker symbol (e.g., AAPL)
     company_name = Column(Text)  # Full company name
     business_summary = Column(Text)  # Business summary description
     last_update = Column(DateTime)  # Timestamp to track when the data was recorded

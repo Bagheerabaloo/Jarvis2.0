@@ -190,6 +190,26 @@ def main(process_name_: str = None,
     symbols_with_errors = queries.get_yfinance_error_tickers()
 
     # symbols=['TSLA']
+    # symbols = ["0P0001ITCV.F",
+    #            "IT0000380300.MI",
+    #            "0P0001ITCU.F",
+    #            "0P00017F8Q.F",
+    #            "0P0000ABTL.F",
+    #            "0P0001M2JZ.F",
+    #            "0P00006BFA.F",
+    #            "0P00014GBD.F",
+    #            "0P00017F8S.F",
+    #            "0P00018GVZ.F",
+    #            "0P0000ABTU.F",
+    #            "0P00014FGK.F",
+    #            "0P0001OXRE.F",
+    #            "IT0001470183.MI",
+    #            "0P000018TP.F",
+    #            "0P0001Q2WU.F",
+    #            "0P0001BQVO.F",
+    #            "0P0000ABTK.F",
+    #            "0P00019VDZ.F",
+    #            "0P00019VE0.F"]
 
     stock_updater = StockUpdater(session=session, symbols_with_errors=symbols_with_errors)
     results = stock_updater.update_all_tickers(symbols=symbols)

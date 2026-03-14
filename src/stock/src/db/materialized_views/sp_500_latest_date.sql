@@ -21,14 +21,3 @@ CREATE INDEX mv_sp_500_latest_date_yf_idx
 
 -- First load (non-concurrent)
 REFRESH MATERIALIZED VIEW public.mv_sp_500_latest_date;
-
--- === VIEW: sp_500_latest_date_view ===
--- Keep the same view name for backward-compat, but point to the new MV
-CREATE OR REPLACE VIEW public.v_sp_500_latest_date AS
-SELECT
-    date,
-    ticker_id,
-    ticker,
-    ticker_yfinance,
-    last_update
-FROM public.mv_sp_500_latest_date;
